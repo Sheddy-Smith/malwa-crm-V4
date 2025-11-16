@@ -626,7 +626,7 @@ const Invoice = () => {
                       {invoice.invoice_no || `INV-${invoice.id}`}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {new Date(invoice.invoice_date).toLocaleDateString('en-IN')}
+                      {new Date(invoice.invoice_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
                       {invoice.customer?.name || '-'}

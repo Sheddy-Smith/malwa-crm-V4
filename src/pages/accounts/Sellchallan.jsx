@@ -590,7 +590,7 @@ const SellChallan = () => {
                       </div>
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {new Date(challan.challan_date).toLocaleDateString('en-IN')}
+                      {new Date(challan.challan_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
                       <div>

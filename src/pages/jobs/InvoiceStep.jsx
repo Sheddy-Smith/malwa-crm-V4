@@ -7,6 +7,7 @@
 import { useState, useEffect } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
+import Modal from "@/components/ui/Modal";
 import { Save, Printer } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
@@ -24,6 +25,7 @@ const InvoiceStep = () => {
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
   const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "" });
   const [customers, setCustomers] = useState([]);
+  const [showCustomerModal, setShowCustomerModal] = useState(false);
 
   useEffect(() => {
     loadRecords();
@@ -86,6 +88,20 @@ const InvoiceStep = () => {
       toast.error('Failed to delete invoice');
     }
   };
+
+  const handleAddCustomer = async (customerData) => {
+    try {
+      const newCustomer = await dbOperations.insert('customers', customerData);
+      await loadCustomers();
+      setCustomer(newCustomer.id);
+      setSelectedCustomerDetails(newCustomer);
+      setShowCustomerModal(false);
+      toast.success('Customer added successfully');
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to add customer');
+    }
+  };
   // Job Sheet data (static)
   const jobSheetEstimate = JSON.parse(localStorage.getItem("jobSheetEstimate") || "[]");
   const extraWork = JSON.parse(localStorage.getItem("extraWork") || "[]");
@@ -129,6 +145,7 @@ const InvoiceStep = () => {
   const [gstType, setGstType] = useState("IGST"); // IGST or CGST+SGST
   const [selectedCustomerDetails, setSelectedCustomerDetails] = useState(null);
   const [roundOff, setRoundOff] = useState(0);
+  const [paymentAmount, setPaymentAmount] = useState(0);
 
   const discount = parseFloat(localStorage.getItem("estimateDiscount") || 0);
   
@@ -247,13 +264,23 @@ const handleSaveInvoice = async () => {
       }
     }
 
+    const vehicleNo = jobCtx.vehicleNo || '';
+
+    // Check for duplicate with same vehicle and date
+    const allRecords = await dbOperations.getAll('invoices');
+    const existingRecord = allRecords.find(
+      record => record.vehicle_no === vehicleNo && record.date === date
+    );
+
     const invoiceData = {
       date,
-      vehicle_no: jobCtx.vehicleNo || undefined,
+      vehicle_no: vehicleNo || undefined,
       party_name: jobCtx.partyName || undefined,
       customer_id: !isNewCustomer ? customerId : undefined,
       customer_name: customerName,
       payment_type: paymentType,
+      payment_received: paymentAmount,
+      balance_due: final - paymentAmount,
       items: allItems,
       subtotal,
       gst_type: gstType,
@@ -264,34 +291,81 @@ const handleSaveInvoice = async () => {
       discount: discount || 0,
       round_off: parseFloat(roundOff || 0),
       total: final,
-      status: 'pending',
+      status: paymentAmount >= final ? 'paid' : 'pending',
     };
 
-    // Save to invoices table
-    const invoice = await dbOperations.insert('invoices', invoiceData);
+    let invoiceId = null;
 
-    // Also save to sell_challans table for consistency
-    await dbOperations.insert('sell_challans', {
-      date,
-      vehicle_no: jobCtx.vehicleNo || undefined,
-      party_name: jobCtx.partyName || undefined,
-      customer_name: customerName,
-      items: allItems,
-      subtotal,
-      gst_type: gstType,
-      cgst: cgst,
-      sgst: sgst,
-      igst: igst,
-      tax: gstAmt,
-      discount: discount || 0,
-      total: final,
-      status: 'invoiced',
-      invoice_id: invoice.id,
-    });
+    if (existingRecord) {
+      // Show confirmation for update
+      const confirmed = window.confirm(
+        `An invoice already exists for Vehicle: ${vehicleNo} on Date: ${date}.\n\nDo you want to UPDATE the existing record?`
+      );
+      
+      if (!confirmed) {
+        return;
+      }
 
-    // Create ledger entry if customer exists
-    if (!isNewCustomer && customerId) {
+      // Update existing invoice
+      await dbOperations.update('invoices', existingRecord.id, invoiceData);
+      invoiceId = existingRecord.id;
+
+      // Update sell_challan if exists
+      const allChallans = await dbOperations.getAll('sell_challans');
+      const existingChallan = allChallans.find(c => c.invoice_id === existingRecord.id);
+      
+      if (existingChallan) {
+        await dbOperations.update('sell_challans', existingChallan.id, {
+          date,
+          vehicle_no: vehicleNo || undefined,
+          party_name: jobCtx.partyName || undefined,
+          customer_name: customerName,
+          items: allItems,
+          subtotal,
+          gst_type: gstType,
+          cgst: cgst,
+          sgst: sgst,
+          igst: igst,
+          tax: gstAmt,
+          discount: discount || 0,
+          total: final,
+          status: 'invoiced',
+          invoice_id: existingRecord.id,
+        });
+      }
+
+      toast.success('Invoice updated successfully');
+    } else {
+      // Save new invoice to invoices table
+      const invoice = await dbOperations.insert('invoices', invoiceData);
+      invoiceId = invoice.id;
+
+      // Also save to sell_challans table for consistency
+      await dbOperations.insert('sell_challans', {
+        date,
+        vehicle_no: vehicleNo || undefined,
+        party_name: jobCtx.partyName || undefined,
+        customer_name: customerName,
+        items: allItems,
+        subtotal,
+        gst_type: gstType,
+        cgst: cgst,
+        sgst: sgst,
+        igst: igst,
+        tax: gstAmt,
+        discount: discount || 0,
+        total: final,
+        status: 'invoiced',
+        invoice_id: invoice.id,
+      });
+
+      toast.success('Invoice saved successfully');
+    }
+
+    // Create ledger entries if customer exists (only for new invoices)
+    if (!existingRecord && !isNewCustomer && customerId) {
       try {
+        // Create invoice ledger entry (debit)
         await dbOperations.insert('customer_ledger_entries', {
           customer_id: customerId,
           entry_date: date,
@@ -300,14 +374,27 @@ const handleSaveInvoice = async () => {
           debit: final,
           credit: 0,
           reference_type: 'invoice',
-          reference_id: invoice.id,
+          reference_id: invoiceId,
         });
+
+        // Create payment ledger entry if payment received (credit)
+        if (paymentAmount > 0) {
+          await dbOperations.insert('customer_ledger_entries', {
+            customer_id: customerId,
+            entry_date: date,
+            type: 'payment',
+            description: `Payment received for Invoice - Vehicle: ${jobCtx.vehicleNo || 'N/A'}`,
+            debit: 0,
+            credit: paymentAmount,
+            reference_type: 'invoice',
+            reference_id: invoiceId,
+          });
+        }
       } catch (ledgerError) {
         console.error('Failed to create ledger entry:', ledgerError);
       }
     }
 
-    toast.success('Invoice saved successfully');
     await loadRecords();
   } catch (e) {
     console.error(e);
@@ -334,9 +421,9 @@ const handleSaveInvoice = async () => {
 
       <Card>
         {/* Customer & Payment Details */}
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-4">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-2 mb-4">
           <div>
-            <label className="font-semibold">Customer</label>
+            <label className="text-xs font-medium">Customer</label>
             {!isNewCustomer ? (
               <select
                 value={customer}
@@ -345,7 +432,7 @@ const handleSaveInvoice = async () => {
                   const selectedCust = customers.find(c => c.id === e.target.value);
                   setSelectedCustomerDetails(selectedCust || null);
                 }}
-                className="w-full border p-2 rounded mt-1"
+                className="w-full border p-1.5 rounded mt-1 text-sm"
               >
                 <option value="">Select Customer</option>
                 {customers.map((cust) => (
@@ -360,50 +447,66 @@ const handleSaveInvoice = async () => {
                 placeholder="Enter new customer"
                 value={customer}
                 onChange={(e) => setCustomer(e.target.value)}
-                className="w-full border p-2 rounded mt-1"
+                className="w-full border p-1.5 rounded mt-1 text-sm"
               />
             )}
-            <div className="mt-2">
+            <div className="mt-1">
               <button
-                className="text-sm text-blue-500 underline"
-                onClick={() => setIsNewCustomer(!isNewCustomer)}
+                className="text-xs text-blue-500 underline"
+                onClick={() => setShowCustomerModal(true)}
               >
-                {isNewCustomer ? "Select Existing" : "Add New Customer"}
+                Add New Customer
               </button>
             </div>
           </div>
 
           <div>
-            <label className="font-semibold">Payment Type</label>
+            <label className="text-xs font-medium">Payment Type</label>
             <select
               value={paymentType}
               onChange={(e) => setPaymentType(e.target.value)}
-              className="w-full border p-2 rounded mt-1"
+              className="w-full border p-1.5 rounded mt-1 text-sm"
             >
               <option>Full Payment</option>
               <option>Advance Payment</option>
               <option>Partial Payment</option>
+              <option>Payment Due</option>
             </select>
           </div>
 
           <div>
-            <label className="font-semibold">Round Off (₹)</label>
+            <label className="text-xs font-medium">Payment Received (₹)</label>
+            <input
+              type="number"
+              step="0.01"
+              value={paymentAmount}
+              onChange={(e) => setPaymentAmount(parseFloat(e.target.value) || 0)}
+              className="w-full border p-1.5 rounded mt-1 text-sm"
+              placeholder="Amount"
+            />
+            <div className="text-xs text-gray-500 mt-0.5">
+              Due: ₹{(finalTotal - paymentAmount).toFixed(2)}
+            </div>
+          </div>
+
+          <div>
+            <label className="text-xs font-medium">Round Off (₹)</label>
             <input
               type="number"
               step="0.01"
               value={roundOff}
               onChange={(e) => setRoundOff(e.target.value)}
-              className="w-full border p-2 rounded mt-1"
+              className="w-full border p-1.5 rounded mt-1 text-sm"
               placeholder="0.00"
             />
           </div>
 
           <div>
-            <label className="font-semibold">GST Type</label>
+            <label className="text-xs font-medium">GST Type</label>
             <select
               value={gstType}
               onChange={(e) => setGstType(e.target.value)}
-              className="w-full border p-2 rounded mt-1"
+              className="w-full border p-1.5 rounded mt-1 text-sm"
             >
               <option value="IGST">IGST 18%</option>
               <option value="CGST+SGST">CGST 9% + SGST 9%</option>
@@ -428,8 +531,8 @@ const handleSaveInvoice = async () => {
           </div>
 
           <div className="px-4 md:px-6 lg:px-8">
-          {/* Customer Details */}
-          <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+        {/* Customer Details */}
+        <div className="grid grid-cols-2 gap-4 mb-4 text-base">
             <div className="border p-3">
               <h5 className="font-bold mb-2">BILL TO:</h5>
               <div><strong>Name:</strong> {selectedCustomerDetails?.name || customer || 'N/A'}</div>
@@ -438,52 +541,55 @@ const handleSaveInvoice = async () => {
               <div><strong>GST No:</strong> {selectedCustomerDetails?.gstin || 'N/A'}</div>
             </div>
             <div className="border p-3">
-              <div><strong>Invoice Date:</strong> {new Date().toLocaleDateString('en-IN')}</div>
+              <div><strong>Invoice Date:</strong> {new Date().toLocaleDateString('en-GB')}</div>
               <div><strong>Vehicle No:</strong> {jobCtx.vehicleNo || 'N/A'}</div>
               <div><strong>Payment Type:</strong> {paymentType}</div>
             </div>
           </div>
           
-          <h4 className="font-semibold mb-2">ITEMS</h4>
-          <table className="w-full text-sm border border-collapse">
+        <h4 className="font-semibold mb-2">ITEMS</h4>
+        <table className="w-full text-base border border-collapse">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 border">S.No</th>
-                <th className="p-2 border">Category</th>
-                <th className="p-2 border">Item</th>
-                <th className="p-2 border">Condition</th>
-                <th className="p-2 border">Cost (₹)</th>
-                <th className="p-2 border">Total (₹)</th>
+                <th className="p-2 border" style={{width: '5%'}}>S.No</th>
+                <th className="p-2 border" style={{width: '55%'}}>Work</th>
+                <th className="p-2 border" style={{width: '15%'}}>Cost (₹)</th>
+                <th className="p-2 border" style={{width: '10%'}}>Qty.</th>
+                <th className="p-2 border" style={{width: '15%'}}>Total (₹)</th>
               </tr>
             </thead>
             <tbody>
-              {jobSheetEstimate.map((item, idx) => (
-                <tr key={`est-${idx}`} className="border-b">
-                  <td className="p-2 border text-center">{idx + 1}</td>
-                  <td className="p-2 border">{item.category}</td>
-                  <td className="p-2 border">{item.item}</td>
-                  <td className="p-2 border">{item.condition}</td>
-                  <td className="p-2 border text-right">{item.cost}</td>
-                  <td className="p-2 border text-right">{calculateTotal(item).toFixed(2)}</td>
-                </tr>
-              ))}
-              {extraWork.map((item, idx) => (
-                <tr key={`extra-${idx}`} className="border-b">
-                  <td className="p-2 border text-center">{jobSheetEstimate.length + idx + 1}</td>
-                  <td className="p-2 border">{item.category}</td>
-                  <td className="p-2 border">{item.item}</td>
-                  <td className="p-2 border">{item.condition}</td>
-                  <td className="p-2 border text-right">{item.cost}</td>
-                  <td className="p-2 border text-right">{calculateTotal(item).toFixed(2)}</td>
-                </tr>
-              ))}
+              {jobSheetEstimate.map((item, idx) => {
+                const multiplier = item.category ? getCategoryMultiplier(item.category.trim()) : (item.workBy ? getMultiplierByWorkType(item.workBy) : 1);
+                return (
+                  <tr key={`est-${idx}`} className="border-b">
+                    <td className="p-2 border text-center">{idx + 1}</td>
+                    <td className="p-2 border">{item.item}</td>
+                    <td className="p-2 border text-right">{item.cost}</td>
+                    <td className="p-2 border text-center">{multiplier}</td>
+                    <td className="p-2 border text-right">{calculateTotal(item).toFixed(2)}</td>
+                  </tr>
+                );
+              })}
+              {extraWork.map((item, idx) => {
+                const multiplier = item.category ? getCategoryMultiplier(item.category.trim()) : (item.workBy ? getMultiplierByWorkType(item.workBy) : 1);
+                return (
+                  <tr key={`extra-${idx}`} className="border-b">
+                    <td className="p-2 border text-center">{jobSheetEstimate.length + idx + 1}</td>
+                    <td className="p-2 border">{item.item}</td>
+                    <td className="p-2 border text-right">{item.cost}</td>
+                    <td className="p-2 border text-center">{multiplier}</td>
+                    <td className="p-2 border text-right">{calculateTotal(item).toFixed(2)}</td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
 
           {/* Totals Section */}
           <div className="mt-4 grid grid-cols-2 gap-4">
-            {/* Left side - Amount in Words and Account Details */}
-            <div className="text-sm">
+          {/* Left side - Amount in Words and Account Details */}
+          <div className="text-base">
               <div className="font-semibold mb-2">Amount in Words:</div>
               <div className="italic mb-4">{numberToWords(Math.round(finalTotal))}</div>
               
@@ -527,14 +633,7 @@ const handleSaveInvoice = async () => {
                 </div>
                 <div className="flex justify-between border-b py-1">
                   <span>Round Off:</span>
-                  <input
-                    type="number"
-                    step="0.01"
-                    value={roundOff}
-                    onChange={(e) => setRoundOff(e.target.value)}
-                    className="w-20 border px-2 py-1 text-right text-sm"
-                    placeholder="0.00"
-                  />
+                  <span>₹{parseFloat(roundOff || 0).toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg py-2 border-t-2">
                   <span>Grand Total:</span>
@@ -584,7 +683,145 @@ const handleSaveInvoice = async () => {
         title="Delete Invoice"
         message="Are you sure you want to delete this invoice record? This action cannot be undone."
       />
+
+      <Modal
+        isOpen={showCustomerModal}
+        onClose={() => setShowCustomerModal(false)}
+        title="Add New Customer"
+      >
+        <CustomerForm 
+          onSave={handleAddCustomer}
+          onCancel={() => setShowCustomerModal(false)}
+        />
+      </Modal>
     </div>
+  );
+};
+
+const CustomerForm = ({ onSave, onCancel }) => {
+  const [formData, setFormData] = useState({
+    name: '',
+    company: '',
+    phone: '',
+    address: '',
+    gstin: '',
+    credit_limit: 0,
+    credit_days: 30,
+    opening_balance: 0
+  });
+
+  const handleChange = (e) => setFormData({...formData, [e.target.name]: e.target.value});
+
+  const handleSubmit = (e) => {
+    e.preventDefault();
+    if(!formData.name || !formData.phone) return toast.error("Name and Phone are required.");
+    onSave(formData);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="space-y-3">
+      <div>
+        <label className="block text-xs font-medium mb-1">Name *</label>
+        <input
+          type="text"
+          name="name"
+          value={formData.name}
+          onChange={handleChange}
+          className="w-full p-1.5 text-sm border rounded"
+          required
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium mb-1">Company</label>
+        <input
+          type="text"
+          name="company"
+          value={formData.company}
+          onChange={handleChange}
+          className="w-full p-1.5 text-sm border rounded"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium mb-1">Phone *</label>
+        <input
+          type="text"
+          name="phone"
+          value={formData.phone}
+          onChange={handleChange}
+          className="w-full p-1.5 text-sm border rounded"
+          required
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium mb-1">Address</label>
+        <textarea
+          name="address"
+          value={formData.address}
+          onChange={handleChange}
+          rows="2"
+          className="w-full p-1.5 text-sm border rounded"
+        />
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium mb-1">GSTIN</label>
+        <input
+          type="text"
+          name="gstin"
+          value={formData.gstin}
+          onChange={handleChange}
+          className="w-full p-1.5 text-sm border rounded"
+        />
+      </div>
+
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <label className="block text-xs font-medium mb-1">Credit Limit (₹)</label>
+          <input
+            type="number"
+            name="credit_limit"
+            value={formData.credit_limit}
+            onChange={handleChange}
+            min="0"
+            className="w-full p-1.5 text-sm border rounded"
+          />
+        </div>
+        <div>
+          <label className="block text-xs font-medium mb-1">Credit Days</label>
+          <input
+            type="number"
+            name="credit_days"
+            value={formData.credit_days}
+            onChange={handleChange}
+            min="0"
+            className="w-full p-1.5 text-sm border rounded"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-xs font-medium mb-1">Opening Balance (₹)</label>
+        <input
+          type="number"
+          name="opening_balance"
+          value={formData.opening_balance}
+          onChange={handleChange}
+          className="w-full p-1.5 text-sm border rounded"
+        />
+      </div>
+
+      <div className="flex gap-2 justify-end pt-2">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
+        </Button>
+        <Button type="submit">
+          Add Customer
+        </Button>
+      </div>
+    </form>
   );
 };
 

@@ -274,7 +274,7 @@ const GSTLedger = () => {
                         )}
                         <div className="text-left">
                           <h4 className="font-semibold text-gray-900 dark:text-dark-text">
-                            {new Date(month + '-01').toLocaleDateString('en-IN', { year: 'numeric', month: 'long' })}
+                            {new Date(month + '-01').toLocaleDateString('en-GB', { year: 'numeric', month: 'long' })}
                           </h4>
                           <p className="text-sm text-gray-600 dark:text-gray-400">
                             {monthEntries.length} transaction(s)
@@ -334,7 +334,7 @@ const GSTLedger = () => {
                                 className="border-t dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50"
                               >
                                 <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                                  {new Date(entry.transaction_date).toLocaleDateString('en-IN')}
+                                  {new Date(entry.transaction_date).toLocaleDateString('en-GB')}
                                 </td>
                                 <td className="p-3">
                                   <span

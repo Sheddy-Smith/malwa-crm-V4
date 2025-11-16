@@ -325,7 +325,7 @@ const VendorLedgerTab = () => {
     doc.text(`Vendor Ledger - ${selectedVendor.name}`, 14, 15);
     doc.setFontSize(10);
     doc.text(`Period: ${filters.startDate || 'All'} to ${filters.endDate || 'All'}`, 14, 22);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 27);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, 14, 27);
 
     let yPos = 35;
     doc.setFontSize(9);
@@ -553,7 +553,7 @@ const VendorLedgerTab = () => {
                           className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                         >
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {new Date(entry.entry_date).toLocaleDateString('en-IN')}
+                            {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                           </td>
                           <td className="p-3 text-gray-900 dark:text-dark-text">{entry.particulars}</td>
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">

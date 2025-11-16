@@ -110,7 +110,7 @@ const SalesHistoryTab = () => {
     filteredInvoices.forEach(inv => {
       csvRows.push([
         inv.invoice_no,
-        new Date(inv.invoice_date).toLocaleDateString('en-IN'),
+        new Date(inv.invoice_date).toLocaleDateString('en-GB'),
         inv.total_amount,
         inv.paid_amount,
         parseFloat(inv.total_amount) - parseFloat(inv.paid_amount),
@@ -266,7 +266,7 @@ const SalesHistoryTab = () => {
                                 {invoice.invoice_no}
                               </td>
                               <td className="p-3 border dark:border-gray-600 dark:text-dark-text">
-                                {new Date(invoice.invoice_date).toLocaleDateString('en-IN')}
+                                {new Date(invoice.invoice_date).toLocaleDateString('en-GB')}
                               </td>
                               <td className="p-3 text-right border dark:border-gray-600 dark:text-dark-text">
                                 ₹ {parseFloat(invoice.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -278,7 +278,7 @@ const SalesHistoryTab = () => {
                                 ₹ {outstanding.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
                               </td>
                               <td className="p-3 border dark:border-gray-600 dark:text-dark-text">
-                                {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-IN') : '-'}
+                                {invoice.due_date ? new Date(invoice.due_date).toLocaleDateString('en-GB') : '-'}
                               </td>
                               <td className="p-3 text-center border dark:border-gray-600">
                                 {getStatusBadge(invoice.payment_status)}

@@ -5,6 +5,7 @@ import Modal from '@/components/ui/Modal';
 import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
 import { PlusCircle, Edit, Trash2, Download, Printer, Search, FileText } from 'lucide-react';
+import { dbOperations } from '@/lib/db';
 
 const PurchaseInvoiceForm = ({ invoice, suppliers, inventoryItems, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
@@ -338,13 +339,9 @@ const Purchase = () => {
 
   const fetchSuppliers = async () => {
     try {
-      const { data, error } = await supabase
-        .from('suppliers')
-        .select('id, name')
-        .order('name');
-
-      if (error) throw error;
-      setSuppliers(data || []);
+      const data = await dbOperations.getAll('suppliers');
+      const sorted = (data || []).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
+      setSuppliers(sorted);
     } catch (error) {
       console.error('Error fetching suppliers:', error);
       toast.error('Failed to load suppliers');
@@ -673,7 +670,7 @@ const Purchase = () => {
                       {invoice.invoice_no || `PUR-${invoice.id}`}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {new Date(invoice.invoice_date).toLocaleDateString('en-IN')}
+                      {new Date(invoice.invoice_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
                       {invoice.supplier?.name || '-'}

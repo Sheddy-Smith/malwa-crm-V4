@@ -7,6 +7,7 @@ import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
 import { PlusCircle } from 'lucide-react';
+import { dbOperations } from '@/lib/db';
 
 const SUPPLIER_CATEGORIES = ['Hardware', 'Steel', 'Paints', 'Parts', 'Other'];
 
@@ -16,12 +17,31 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
       name: '',
       phone: '',
       company: '',
-      category: 'Hardware',
+      category: '',
       address: '',
       gstin: '',
       credit_limit: 0,
     }
   );
+  const [categories, setCategories] = useState([]);
+
+  useEffect(() => {
+    const loadCategories = async () => {
+      try {
+        const data = await dbOperations.getAll('inventory_categories');
+        const sorted = (data || []).sort((a, b) => String(a.name).localeCompare(String(b.name)));
+        setCategories(sorted);
+        // Set first category as default if no category selected and not editing
+        if (!supplier && sorted.length > 0 && !formData.category) {
+          setFormData(prev => ({ ...prev, category: sorted[0].name }));
+        }
+      } catch (error) {
+        console.error('Error loading categories:', error);
+        setCategories([]);
+      }
+    };
+    loadCategories();
+  }, []);
 
   const handleChange = (e) => {
     setFormData({ ...formData, [e.target.name]: e.target.value });
@@ -97,9 +117,10 @@ const SupplierForm = ({ supplier, onSave, onCancel }) => {
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red focus:border-transparent transition-colors"
           required
         >
-          {SUPPLIER_CATEGORIES.map((cat) => (
-            <option key={cat} value={cat}>
-              {cat}
+          <option value="">Select Category</option>
+          {categories.map((cat) => (
+            <option key={cat.id} value={cat.name}>
+              {cat.name}
             </option>
           ))}
         </select>

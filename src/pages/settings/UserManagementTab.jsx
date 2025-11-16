@@ -266,7 +266,7 @@ const UserDetailsModal = ({ isOpen, onClose, user }) => {
                             <span className="text-sm font-medium">Created</span>
                         </div>
                         <p className="text-sm dark:text-dark-text">
-                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString() : 'N/A'}
+                            {user.createdAt ? new Date(user.createdAt).toLocaleDateString('en-GB') : 'N/A'}
                         </p>
                     </div>
 
@@ -514,7 +514,7 @@ const UserManagementTab = () => {
                                     </span>
                                 </td>
                                 <td className="p-3 text-xs dark:text-dark-text-secondary">
-                                    {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString() : 'Never'}
+                                    {u.lastLogin ? new Date(u.lastLogin).toLocaleDateString('en-GB') : 'Never'}
                                 </td>
                                 <td className="p-3 text-right">
                                     <div className="flex justify-end gap-1">

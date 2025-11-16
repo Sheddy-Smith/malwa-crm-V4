@@ -103,7 +103,7 @@ export const exportLedgerToPDF = (customer, entries, kpis, aging) => {
         { align: 'center' }
       );
       doc.text(
-        `Prepared on: ${new Date().toLocaleDateString('en-IN')}`,
+        `Prepared on: ${new Date().toLocaleDateString('en-GB')}`,
         15,
         pageHeight - 10
       );

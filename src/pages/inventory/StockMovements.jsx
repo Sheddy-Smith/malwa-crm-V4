@@ -82,7 +82,7 @@ const DocumentDetailsModal = ({ documentId, documentType, onClose }) => {
             <span className="ml-2 font-medium">
               {new Date(
                 documentData.invoice_date || documentData.challan_date || documentData.created_at
-              ).toLocaleDateString('en-IN')}
+              ).toLocaleDateString('en-GB')}
             </span>
           </div>
           {documentData.total_amount !== undefined && (
@@ -231,7 +231,7 @@ const StockMovements = () => {
       14,
       22
     );
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 27);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, 14, 27);
 
     let yPos = 35;
     doc.setFontSize(9);
@@ -388,7 +388,7 @@ const StockMovements = () => {
                           className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                         >
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {new Date(movement.movement_date).toLocaleDateString('en-IN')}
+                            {new Date(movement.movement_date).toLocaleDateString('en-GB')}
                           </td>
                           <td className="p-3 font-medium text-gray-900 dark:text-dark-text">
                             {movement.item?.name || '-'}

@@ -327,7 +327,7 @@ const ChalanStep = () => {
                   <td className="p-2 border bg-gray-50 font-semibold w-1/4">Party Name:</td>
                   <td className="p-2 border">{jobCtx.partyName || '--'}</td>
                   <td className="p-2 border bg-gray-50 font-semibold w-1/4">Date:</td>
-                  <td className="p-2 border">{new Date().toISOString().split('T')[0]}</td>
+                  <td className="p-2 border">{new Date().toLocaleDateString('en-GB')}</td>
                 </tr>
                 <tr>
                   <td className="p-2 border bg-gray-50 font-semibold">Vehicle Number:</td>
@@ -341,17 +341,15 @@ const ChalanStep = () => {
 
           <h4 className="font-semibold mb-2">Tasks from Job Sheet</h4>
           <div className="overflow-x-auto">
-            <table className="w-full text-sm border">
+            <table className="w-full text-base border">
               <thead className="bg-gray-100">
                 <tr>
-                  <th className="p-2 border">Category</th>
-                  <th className="p-2 border">Item</th>
-                  <th className="p-2 border">Condition</th>
-                  <th className="p-2 border">Cost (₹)</th>
-                  <th className="p-2 border">Total (₹)</th>
-                  <th className="p-2 border">Work By</th>
-                  <th className="p-2 border">Notes</th>
-                  <th className="p-2 border text-center">Action</th>
+                  <th className="p-2 border" style={{width: '40%'}}>Work</th>
+                  <th className="p-2 border text-center" style={{width: '15%'}}>Extra Work</th>
+                  <th className="p-2 border text-center" style={{width: '15%'}}>Category</th>
+                  <th className="p-2 border text-center" style={{width: '12%'}}>Cost (₹)</th>
+                  <th className="p-2 border text-center" style={{width: '8%'}}>Qty</th>
+                  <th className="p-2 border text-center" style={{width: '10%'}}>Total (₹)</th>
                 </tr>
               </thead>
 
@@ -361,25 +359,12 @@ const ChalanStep = () => {
                   const multiplier = item.category ? getCategoryMultiplier(item.category.trim()) : (item.workBy ? getMultiplierByWorkType(item.workBy) : 1);
                   return (
                     <tr key={`est-${idx}`} className="border-b">
-                      <td className="p-2">
-                        {item.category}
-                        <span className="text-xs text-gray-500 ml-1">({multiplier}x)</span>
-                      </td>
                       <td className="p-2">{item.item}</td>
-                      <td className="p-2">{item.condition}</td>
-                      <td className="p-2">₹{item.cost}</td>
-                      <td className="p-2 font-semibold">₹{calculateTotal(item).toFixed(2)}</td>
-                      <td className="p-2">{item.workBy || "Labour"}</td>
-                      <td className="p-2">{item.notes || ""}</td>
-                      <td className="p-2 text-center">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDelete("estimate", idx)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </td>
+                      <td className="p-2 text-center">--</td>
+                      <td className="p-2 text-center">{item.category}</td>
+                      <td className="p-2 text-center">₹{item.cost}</td>
+                      <td className="p-2 text-center">{multiplier}</td>
+                      <td className="p-2 text-center font-semibold">₹{calculateTotal(item).toFixed(2)}</td>
                     </tr>
                   );
                 })}
@@ -389,25 +374,12 @@ const ChalanStep = () => {
                   const multiplier = item.category ? getCategoryMultiplier(item.category.trim()) : (item.workBy ? getMultiplierByWorkType(item.workBy) : 1);
                   return (
                     <tr key={`extra-${idx}`} className="border-b">
-                      <td className="p-2">
-                        {item.category}
-                        <span className="text-xs text-gray-500 ml-1">({multiplier}x)</span>
-                      </td>
                       <td className="p-2">{item.item}</td>
-                      <td className="p-2">{item.condition}</td>
-                      <td className="p-2">₹{item.cost}</td>
-                      <td className="p-2 font-semibold">₹{calculateTotal(item).toFixed(2)}</td>
-                      <td className="p-2">{item.workBy || "Labour"}</td>
-                      <td className="p-2">{item.notes || ""}</td>
-                      <td className="p-2 text-center">
-                        <Button
-                          variant="destructive"
-                          size="sm"
-                          onClick={() => handleDelete("extra", idx)}
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </Button>
-                      </td>
+                      <td className="p-2 text-center">✓</td>
+                      <td className="p-2 text-center">{item.category}</td>
+                      <td className="p-2 text-center">₹{item.cost}</td>
+                      <td className="p-2 text-center">{multiplier}</td>
+                      <td className="p-2 text-center font-semibold">₹{calculateTotal(item).toFixed(2)}</td>
                     </tr>
                   );
                 })}
@@ -424,15 +396,15 @@ const ChalanStep = () => {
             </div>
 
             {/* Payment Details Section */}
-            <div className="mt-6 border-t pt-4">
-              <h5 className="font-semibold mb-3">Payment Details</h5>
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="mt-4 border-t pt-2">
+              <h5 className="text-xs font-semibold mb-1.5">Payment Details</h5>
+              <div className="grid grid-cols-1 lg:grid-cols-6 gap-2">
                 <div>
-                  <label className="block text-sm font-medium mb-2">Payment Status</label>
+                  <label className="block text-xs mb-1">Payment Status</label>
                   <select
                     value={paymentStatus}
                     onChange={(e) => setPaymentStatus(e.target.value)}
-                    className="w-full p-2 border rounded"
+                    className="w-full p-1.5 text-sm border rounded"
                   >
                     <option value="pending">Pending</option>
                     <option value="half">Half Paid</option>
@@ -440,31 +412,31 @@ const ChalanStep = () => {
                   </select>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium mb-2">Manual Payment Amount (₹)</label>
+                  <label className="block text-xs mb-1">Payment Amount (₹)</label>
                   <input
                     type="number"
                     value={manualPayment}
                     onChange={(e) => setManualPayment(parseFloat(e.target.value) || 0)}
-                    className="w-full p-2 border rounded"
-                    placeholder="Enter payment received"
+                    className="w-full p-1.5 text-sm border rounded"
+                    placeholder="Amount"
                   />
                 </div>
                 <div className="flex items-end">
-                  <label className="flex items-center gap-2 cursor-pointer">
+                  <label className="flex items-center gap-1 cursor-pointer">
                     <input
                       type="checkbox"
                       checked={createInvoice}
                       onChange={(e) => setCreateInvoice(e.target.checked)}
-                      className="w-4 h-4"
+                      className="w-3 h-3"
                     />
-                    <span className="text-sm font-medium">Create Invoice</span>
+                    <span className="text-xs">Create Invoice</span>
                   </label>
                 </div>
               </div>
-              <div className="mt-3 text-right">
-                <div className="text-sm">Total: ₹{finalTotal.toFixed(2)}</div>
-                <div className="text-sm">Payment Received: ₹{manualPayment.toFixed(2)}</div>
-                <div className="text-sm font-bold text-red-600">Balance Due: ₹{(finalTotal - manualPayment).toFixed(2)}</div>
+              <div className="mt-2 text-right">
+                <div className="text-2xl">Total: ₹{finalTotal.toFixed(2)}</div>
+                <div className="text-2xl">Payment Received: ₹{manualPayment.toFixed(2)}</div>
+                <div className="text-2xl font-bold text-red-600">Balance Due: ₹{(finalTotal - manualPayment).toFixed(2)}</div>
               </div>
             </div>
           </div>

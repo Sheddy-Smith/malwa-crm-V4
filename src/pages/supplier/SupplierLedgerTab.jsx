@@ -204,7 +204,7 @@ const DocumentDetailsModal = ({ documentId, documentType, onClose }) => {
           <div>
             <span className="text-gray-600 dark:text-dark-text-secondary">Date:</span>
             <span className="ml-2 font-medium">
-              {new Date(documentData.invoice_date || documentData.challan_date || documentData.voucher_date).toLocaleDateString('en-IN')}
+              {new Date(documentData.invoice_date || documentData.challan_date || documentData.voucher_date).toLocaleDateString('en-GB')}
             </span>
           </div>
           {documentData.total_amount !== undefined && (
@@ -445,7 +445,7 @@ const SupplierLedgerTab = () => {
     doc.setFontSize(10);
     doc.text(`Category: ${selectedSupplier.category || 'N/A'}`, 14, 22);
     doc.text(`Period: ${filters.startDate || 'All'} to ${filters.endDate || 'All'}`, 14, 27);
-    doc.text(`Generated: ${new Date().toLocaleDateString()}`, 14, 32);
+    doc.text(`Generated: ${new Date().toLocaleDateString('en-GB')}`, 14, 32);
 
     let yPos = 40;
     doc.setFontSize(9);
@@ -697,7 +697,7 @@ const SupplierLedgerTab = () => {
                           className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
                         >
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {new Date(entry.entry_date).toLocaleDateString('en-IN')}
+                            {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                           </td>
                           <td className="p-3 text-gray-900 dark:text-dark-text">{entry.particulars}</td>
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">

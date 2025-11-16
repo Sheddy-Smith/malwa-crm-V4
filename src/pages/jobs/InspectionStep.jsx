@@ -20,12 +20,15 @@ const InspectionStep = () => {
     ownerName: "",
     contactNo: "",
     inspectionDate: new Date().toISOString().split('T')[0],
-    branch: "",
+    address: "",
+    gstNumber: "",
     status: "in-progress",
   });
 
   const [items, setItems] = useState([]);
   const [categories, setCategories] = useState([]);
+  const [vendors, setVendors] = useState([]);
+  const [labourers, setLabourers] = useState([]);
   const [editingIndex, setEditingIndex] = useState(null);
   const [newItem, setNewItem] = useState(null);
   const [records, setRecords] = useState([]);
@@ -47,6 +50,26 @@ const InspectionStep = () => {
       }
     };
     loadCats();
+
+    const loadVendors = async () => {
+      try {
+        const data = await dbOperations.getAll('vendors');
+        setVendors(data || []);
+      } catch {
+        setVendors([]);
+      }
+    };
+    loadVendors();
+
+    const loadLabourers = async () => {
+      try {
+        const data = await dbOperations.getAll('labour');
+        setLabourers(data || []);
+      } catch {
+        setLabourers([]);
+      }
+    };
+    loadLabourers();
   }, []);
 
   useEffect(() => {
@@ -124,7 +147,8 @@ const InspectionStep = () => {
       party_name: details.ownerName,
       phone: details.contactNo || '',
       date: details.inspectionDate,
-      branch: details.branch,
+      address: details.address,
+      gst_number: details.gstNumber || '',
       status: details.status,
       items: normalizedItems,
       user_id: user?.id,
@@ -162,7 +186,7 @@ const InspectionStep = () => {
     }
   };
 
-  const addRow = () => setNewItem({ item: "", category: "", condition: "OK", cost: "0", multiplier: 1 });
+  const addRow = () => setNewItem({ item: "", category: "", condition: "OK", cost: "0", multiplier: 1, workOrder: "", assignedTo: "" });
 
   const saveNewRow = async () => {
     if (!newItem || !newItem.item?.trim()) {
@@ -206,7 +230,8 @@ const InspectionStep = () => {
       ownerName: record.party_name,
       contactNo: record.phone || '',
       inspectionDate: record.date,
-      branch: record.branch,
+      address: record.address || '',
+      gstNumber: record.gst_number || '',
       status: record.status,
     });
     const uiItems = (record.items || []).map((it) => ({
@@ -253,7 +278,8 @@ const InspectionStep = () => {
       ownerName: "",
       contactNo: "",
       inspectionDate: new Date().toISOString().split('T')[0],
-      branch: "",
+      address: "",
+      gstNumber: "",
       status: "in-progress",
     });
     setItems([]);
@@ -277,6 +303,8 @@ const InspectionStep = () => {
       condition: it.condition || 'OK',
       cost: parseFloat(it.cost) || 0,
       multiplier: parseFloat(it.multiplier ?? getCategoryMultiplier((it.category || '').trim())) || 1,
+      workOrder: it.workOrder || '',
+      assignedTo: it.assignedTo || '',
     }));
     
     // Persist meta so downstream job steps can prefill header/details
@@ -285,6 +313,8 @@ const InspectionStep = () => {
         vehicleNo: details.vehicleNo,
         partyName: details.ownerName,
         contactNo: details.contactNo || '',
+        address: details.address || '',
+        gstNumber: details.gstNumber || '',
         date: details.inspectionDate
       };
       localStorage.setItem('jobsContext', JSON.stringify(ctx));
@@ -305,6 +335,8 @@ const InspectionStep = () => {
         condition: it.condition || 'OK',
         cost: parseFloat(it.cost) || 0,
         multiplier: parseFloat(it.multiplier ?? getCategoryMultiplier((it.category || '').trim())) || 1,
+        workOrder: it.workOrder || '',
+        assignedTo: it.assignedTo || '',
       }));
       try {
         localStorage.setItem('inspectionItems', JSON.stringify(estimateItems));
@@ -312,12 +344,14 @@ const InspectionStep = () => {
           vehicleNo: details.vehicleNo,
           partyName: details.ownerName,
           contactNo: details.contactNo || '',
+          address: details.address || '',
+          gstNumber: details.gstNumber || '',
           date: details.inspectionDate
         };
         localStorage.setItem('jobsContext', JSON.stringify(ctx));
       } catch {}
     };
-  }, [items, details.vehicleNo, details.ownerName, details.contactNo, details.inspectionDate]);
+  }, [items, details.vehicleNo, details.ownerName, details.contactNo, details.address, details.gstNumber, details.inspectionDate]);
 
   return (
     <div className="space-y-4">
@@ -330,55 +364,67 @@ const InspectionStep = () => {
       </div>
 
       <Card>
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 text-sm">
           <div>
-            <label className="font-medium">Vehicle No:</label>
+            <label className="font-medium text-xs">Vehicle No:</label>
             <input
               type="text"
               name="vehicleNo"
               value={details.vehicleNo}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium">Owner Name:</label>
+            <label className="font-medium text-xs">Owner Name:</label>
             <input
               type="text"
               name="ownerName"
               value={details.ownerName}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium">Contact Number:</label>
+            <label className="font-medium text-xs">Contact Number:</label>
             <input
               type="tel"
               name="contactNo"
               value={details.contactNo}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium">Inspection Date:</label>
+            <label className="font-medium text-xs">Inspection Date:</label>
             <input
               type="date"
               name="inspectionDate"
               value={details.inspectionDate}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           <div>
-            <label className="font-medium">Branch:</label>
+            <label className="font-medium text-xs">Address:</label>
             <input
               type="text"
-              name="branch"
-              value={details.branch}
+              name="address"
+              value={details.address}
               onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+          </div>
+          <div>
+            <label className="font-medium text-xs">GST Number (Optional):</label>
+            <input
+              type="text"
+              name="gstNumber"
+              value={details.gstNumber}
+              onChange={handleDetailChange}
+              placeholder="15 characters"
+              maxLength="15"
+              className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
           {/* Status field removed as per requirement */}
@@ -397,13 +443,14 @@ const InspectionStep = () => {
           <table className="w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800 text-left">
               <tr>
-                <th className="p-2">Item</th>
-                <th className="p-2">Category</th>
-                <th className="p-2">Condition</th>
-                <th className="p-2">Cost</th>
-                <th className="p-2">Multiplier</th>
-                <th className="p-2">Total</th>
-                <th className="p-2 text-right">Actions</th>
+                <th className="p-2" style={{width: '30%'}}>Work</th>
+                <th className="p-2" style={{width: '10%'}}>Category</th>
+                <th className="p-2" style={{width: '10%'}}>Cost</th>
+                <th className="p-2" style={{width: '8%'}}>Qty</th>
+                <th className="p-2" style={{width: '10%'}}>Total</th>
+                <th className="p-2" style={{width: '10%'}}>Work Order</th>
+                <th className="p-2" style={{width: '12%'}}>Assigned To</th>
+                <th className="p-2 text-center" style={{width: '10%'}}><Edit className="h-4 w-4 inline" /></th>
               </tr>
             </thead>
             <tbody>
@@ -431,18 +478,6 @@ const InspectionStep = () => {
                       />
                     </td>
                     <td className="p-2">
-                      <select
-                        value={it.condition}
-                        onChange={(e) => { const copy = [...items]; copy[index] = { ...copy[index], condition: e.target.value }; setItems(copy); }}
-                        className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                      >
-                        <option>OK</option>
-                        <option>Repair Needed</option>
-                        <option>Replace</option>
-                        <option>Damage</option>
-                      </select>
-                    </td>
-                    <td className="p-2">
                       <input
                         type="number"
                         value={it.cost}
@@ -460,7 +495,34 @@ const InspectionStep = () => {
                       />
                     </td>
                     <td className="p-2">{calculateTotal(it)}</td>
-                    <td className="p-2 text-right space-x-1">
+                    <td className="p-2">
+                      <select
+                        value={it.workOrder || ''}
+                        onChange={(e) => { const copy = [...items]; copy[index] = { ...copy[index], workOrder: e.target.value, assignedTo: '' }; setItems(copy); }}
+                        className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      >
+                        <option value="">Select</option>
+                        <option value="Vendor">Vendor</option>
+                        <option value="Labour">Labour</option>
+                      </select>
+                    </td>
+                    <td className="p-2">
+                      <select
+                        value={it.assignedTo || ''}
+                        onChange={(e) => { const copy = [...items]; copy[index] = { ...copy[index], assignedTo: e.target.value }; setItems(copy); }}
+                        className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                        disabled={!it.workOrder}
+                      >
+                        <option value="">Select</option>
+                        {it.workOrder === 'Vendor' && vendors.map(v => (
+                          <option key={v.id} value={v.name}>{v.name}</option>
+                        ))}
+                        {it.workOrder === 'Labour' && labourers.map(l => (
+                          <option key={l.id} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="p-2 text-center space-x-1">
                       <Button variant="ghost" onClick={() => saveEditRow(index)}><Save className="h-4 w-4 text-green-600" /></Button>
                       <Button variant="ghost" onClick={() => setEditingIndex(null)}><X className="h-4 w-4 text-gray-600" /></Button>
                     </td>
@@ -469,11 +531,12 @@ const InspectionStep = () => {
                   <tr key={index}>
                     <td className="p-2">{it.item || it.name}</td>
                     <td className="p-2">{it.category}</td>
-                    <td className="p-2">{it.condition}</td>
                     <td className="p-2">{it.cost}</td>
                     <td className="p-2">{it.multiplier ?? multipliers[it.category] ?? 1}</td>
                     <td className="p-2">{calculateTotal(it)}</td>
-                    <td className="p-2 text-right space-x-1">
+                    <td className="p-2">{it.workOrder || '-'}</td>
+                    <td className="p-2">{it.assignedTo || '-'}</td>
+                    <td className="p-2 text-center space-x-1">
                       <Button variant="ghost" onClick={() => editRow(index)}><Edit className="h-4 w-4 text-blue-600" /></Button>
                       <Button variant="ghost" onClick={() => deleteRow(index)}><Trash2 className="h-4 w-4 text-red-500" /></Button>
                     </td>
@@ -504,18 +567,6 @@ const InspectionStep = () => {
                     />
                   </td>
                   <td className="p-2">
-                    <select
-                      value={newItem.condition}
-                      onChange={(e) => setNewItem({ ...newItem, condition: e.target.value })}
-                      className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-                    >
-                      <option>OK</option>
-                      <option>Repair Needed</option>
-                      <option>Replace</option>
-                      <option>Damage</option>
-                    </select>
-                  </td>
-                  <td className="p-2">
                     <input
                       type="number"
                       value={newItem.cost}
@@ -533,7 +584,34 @@ const InspectionStep = () => {
                     />
                   </td>
                   <td className="p-2">{calculateTotal(newItem)}</td>
-                  <td className="p-2 text-right space-x-1">
+                  <td className="p-2">
+                    <select
+                      value={newItem.workOrder || ''}
+                      onChange={(e) => setNewItem({ ...newItem, workOrder: e.target.value, assignedTo: '' })}
+                      className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                    >
+                      <option value="">Select</option>
+                      <option value="Vendor">Vendor</option>
+                      <option value="Labour">Labour</option>
+                    </select>
+                  </td>
+                  <td className="p-2">
+                    <select
+                      value={newItem.assignedTo || ''}
+                      onChange={(e) => setNewItem({ ...newItem, assignedTo: e.target.value })}
+                      className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+                      disabled={!newItem.workOrder}
+                    >
+                      <option value="">Select</option>
+                      {newItem.workOrder === 'Vendor' && vendors.map(v => (
+                        <option key={v.id} value={v.name}>{v.name}</option>
+                      ))}
+                      {newItem.workOrder === 'Labour' && labourers.map(l => (
+                        <option key={l.id} value={l.name}>{l.name}</option>
+                      ))}
+                    </select>
+                  </td>
+                  <td className="p-2 text-center space-x-1">
                     <Button variant="ghost" onClick={saveNewRow}><Save className="h-4 w-4 text-green-600" /></Button>
                     <Button variant="ghost" onClick={() => setNewItem(null)}><X className="h-4 w-4 text-gray-600" /></Button>
                   </td>

@@ -570,7 +570,7 @@ const Voucher = () => {
                       {voucher.voucher_no || `VOU-${voucher.id}`}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {new Date(voucher.voucher_date).toLocaleDateString('en-IN')}
+                      {new Date(voucher.voucher_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3">
                       <span

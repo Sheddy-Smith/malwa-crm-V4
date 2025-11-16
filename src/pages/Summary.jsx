@@ -228,7 +228,7 @@ const Summary = () => {
 
     const csvContent = [
       `Summary Dashboard Report`,
-      `Period: ${new Date(dateRange.startDate).toLocaleDateString('en-IN')} to ${new Date(dateRange.endDate).toLocaleDateString('en-IN')}`,
+      `Period: ${new Date(dateRange.startDate).toLocaleDateString('en-GB')} to ${new Date(dateRange.endDate).toLocaleDateString('en-GB')}`,
       '',
       headers.join(','),
       ...kpiRows.map((row) => row.join(',')),

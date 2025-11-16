@@ -391,7 +391,7 @@ const EstimateStep = () => {
 
         <div className="px-4 md:px-6 lg:px-8">
         {/* Customer Details */}
-        <div className="grid grid-cols-2 gap-4 mb-4 text-sm">
+        <div className="grid grid-cols-2 gap-4 mb-4 text-base">
           <div className="border p-3">
             <h5 className="font-bold mb-2">ESTIMATE FOR:</h5>
             <div><strong>Vehicle No:</strong> {details.vehicleNo || 'N/A'}</div>
@@ -409,26 +409,25 @@ const EstimateStep = () => {
             })()}</div>
           </div>
           <div className="border p-3">
-            <div><strong>Estimate Date:</strong> {new Date(details.date).toLocaleDateString('en-IN')}</div>
+            <div><strong>Estimate Date:</strong> {new Date(details.date).toLocaleDateString('en-GB')}</div>
           </div>
         </div>
         
         <h4 className="font-semibold mb-2">ITEMS</h4>
-        <table className="w-full text-sm border border-collapse">
+        <table className="w-full text-base border border-collapse">
           <thead className="bg-gray-100">
             <tr>
-              <th className="p-2 border">S.No</th>
-              <th className="p-2 border">Category</th>
-              <th className="p-2 border">Item</th>
-              <th className="p-2 border">Condition</th>
-              <th className="p-2 border">Cost (₹)</th>
-              <th className="p-2 border">Total (₹)</th>
+              <th className="p-2 border" style={{width: '5%'}}>S.No</th>
+              <th className="p-2 border" style={{width: '55%'}}>Work</th>
+              <th className="p-2 border" style={{width: '15%'}}>Cost (₹)</th>
+              <th className="p-2 border" style={{width: '10%'}}>Qty.</th>
+              <th className="p-2 border" style={{width: '15%'}}>Total (₹)</th>
             </tr>
           </thead>
           <tbody>
             {items.length === 0 && (
               <tr>
-                <td colSpan={6} className="p-4 text-center text-gray-500">
+                <td colSpan={5} className="p-4 text-center text-gray-500">
                   No inspection items.
                 </td>
               </tr>
@@ -438,13 +437,9 @@ const EstimateStep = () => {
               return (
                 <tr key={index}>
                   <td className="p-2 border">{index + 1}</td>
-                  <td className="p-2 border">
-                    {item.category}
-                    <span className="text-xs text-gray-500 ml-2">({multiplier}x)</span>
-                  </td>
                   <td className="p-2 border">{item.item || item.name}</td>
-                  <td className="p-2 border">{item.condition}</td>
                   <td className="p-2 border text-right">{item.cost}</td>
+                  <td className="p-2 border text-center">{multiplier}</td>
                   <td className="p-2 border text-right font-semibold">{calculateTotal(item).toFixed(2)}</td>
                 </tr>
               );
@@ -455,7 +450,7 @@ const EstimateStep = () => {
         {/* Totals Section */}
         <div className="mt-4 grid grid-cols-2 gap-4">
           {/* Left side - Amount in Words and Account Details */}
-          <div className="text-sm">
+          <div className="text-base">
             <div className="font-semibold mb-2">Amount in Words:</div>
             <div className="italic mb-4">{numberToWords(Math.round(balanceDue))}</div>
             
@@ -471,7 +466,7 @@ const EstimateStep = () => {
           
           {/* Right side - Totals and Signature */}
           <div>
-            <div className="text-sm">
+            <div className="text-base">
               <div className="flex justify-between border-b py-1">
                 <span>Subtotal:</span>
                 <span>₹{subTotal.toFixed(2)}</span>

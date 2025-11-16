@@ -107,7 +107,7 @@ const JobHistoryTab = ({ customer }) => {
                       {job.vehicle_no}
                     </td>
                     <td className="p-3 border dark:border-gray-600 dark:text-dark-text">
-                      {new Date(job.job_date).toLocaleDateString('en-IN')}
+                      {new Date(job.job_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3 border dark:border-gray-600">
                       {getStatusBadge(job.status)}

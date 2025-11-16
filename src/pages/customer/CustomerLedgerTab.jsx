@@ -161,7 +161,7 @@ const AllocationModal = ({ receipt, onClose, onSave }) => {
                         {invoice.invoice_no}
                       </td>
                       <td className="p-2 text-right border dark:border-gray-600 dark:text-dark-text">
-                        {new Date(invoice.invoice_date).toLocaleDateString('en-IN')}
+                        {new Date(invoice.invoice_date).toLocaleDateString('en-GB')}
                       </td>
                       <td className="p-2 text-right border dark:border-gray-600 dark:text-dark-text">
                         ₹ {parseFloat(invoice.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
@@ -388,7 +388,7 @@ const CustomerLedgerTab = () => {
 
     filteredEntries.forEach(entry => {
       csvRows.push([
-        new Date(entry.entry_date).toLocaleDateString('en-IN'),
+        new Date(entry.entry_date).toLocaleDateString('en-GB'),
         entry.ref_type || '',
         entry.ref_no || '',
         entry.particulars,
@@ -560,7 +560,7 @@ const CustomerLedgerTab = () => {
                         filteredEntries.map((entry) => (
                           <tr key={entry.id} className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50">
                             <td className={`${density === 'compact' ? 'p-1' : 'p-3'} border dark:border-gray-600 dark:text-dark-text`}>
-                              {new Date(entry.entry_date).toLocaleDateString('en-IN')}
+                              {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                             </td>
                             <td className={`${density === 'compact' ? 'p-1' : 'p-3'} border dark:border-gray-600 dark:text-dark-text capitalize`}>
                               {entry.ref_type || '-'}

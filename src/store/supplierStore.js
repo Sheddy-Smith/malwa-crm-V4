@@ -69,6 +69,7 @@ const useSupplierStore = create((set, get) => ({
         name: supplierData.name,
         company: supplierData.company || null,
         phone: supplierData.phone,
+        category: supplierData.category || null,
         address: supplierData.address || null,
         gstin: supplierData.gstin || supplierData.GSTIN || null,
         pan: supplierData.pan || supplierData.PAN || null,
@@ -115,6 +116,7 @@ const useSupplierStore = create((set, get) => ({
         phone: updatedSupplier.phone,
         address: updatedSupplier.address,
         gstin: updatedSupplier.gstin,
+        category: updatedSupplier.category,
         credit_limit: updatedSupplier.credit_limit,
       });
 

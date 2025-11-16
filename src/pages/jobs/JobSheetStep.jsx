@@ -17,10 +17,25 @@ const JobSheetStep = () => {
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [vendors, setVendors] = useState([]);
+  const [labourers, setLabourers] = useState([]);
 
   useEffect(() => {
     loadRecords();
+    loadVendorsAndLabourers();
   }, []);
+
+  const loadVendorsAndLabourers = async () => {
+    try {
+      const vendorData = await dbOperations.getAll('vendors');
+      setVendors(vendorData || []);
+      
+      const labourData = await dbOperations.getAll('labour');
+      setLabourers(labourData || []);
+    } catch (error) {
+      console.error('Failed to load vendors/labourers:', error);
+    }
+  };
 
   const loadRecords = async () => {
     try {
@@ -258,17 +273,17 @@ const JobSheetStep = () => {
         </div>
 
         <div className="overflow-x-auto">
-          <table className="w-full text-sm border">
-            <thead className="bg-gray-100">
+          <table className="w-full text-sm border dark:border-gray-700">
+            <thead className="bg-gray-50 dark:bg-gray-800 text-left">
               <tr>
-                <th className="p-2 border">Category</th>
-                <th className="p-2 border">Item</th>
-                <th className="p-2 border">Condition</th>
-                <th className="p-2 border">Cost (₹)</th>
-                <th className="p-2 border">Multiplier</th>
-                <th className="p-2 border">Total (₹)</th>
-                <th className="p-2 border">Work By</th>
-                <th className="p-2 border">Notes</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '30%'}}>Work</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Category</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Cost</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '8%'}}>Qty</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Total</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Work Order</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '12%'}}>Assigned To</th>
+                <th className="p-2 border dark:border-gray-700" style={{width: '10%'}}>Actions</th>
               </tr>
             </thead>
             <tbody>
@@ -280,34 +295,23 @@ const JobSheetStep = () => {
                 </tr>
               ) : (
                 estimateItems.map((item, index) => (
-                  <tr key={index} className="border-b">
-                    <td className="p-2">{item.category}</td>
+                  <tr key={index} className="border-b dark:border-gray-700">
                     <td className="p-2">{item.item}</td>
-                    <td className="p-2">{item.condition}</td>
+                    <td className="p-2">{item.category}</td>
                     <td className="p-2">{item.cost}</td>
                     <td className="p-2">{parseFloat(item.multiplier)}</td>
                     <td className="p-2">{calculateTotal(item).toFixed(2)}</td>
-                    <td className="p-2">
-                      <select
-                        value={item.workBy}
-                        onChange={(e) =>
-                          handleEstimateChange(index, "workBy", e.target.value)
-                        }
-                        className="p-1 border rounded w-full"
-                      >
-                        <option value="Labour">Labour</option>
-                        <option value="Vendor">Vendor</option>
-                      </select>
-                    </td>
+                    <td className="p-2">{item.workOrder || '-'}</td>
+                    <td className="p-2">{item.assignedTo || '-'}</td>
                     <td className="p-2">
                       <input
                         type="text"
-                        value={item.notes}
+                        value={item.notes || ''}
                         onChange={(e) =>
                           handleEstimateChange(index, "notes", e.target.value)
                         }
                         placeholder="Notes..."
-                        className="w-full p-1 border rounded"
+                        className="w-full p-1 border rounded dark:bg-gray-700 dark:border-gray-600"
                       />
                     </td>
                   </tr>
@@ -340,27 +344,37 @@ const JobSheetStep = () => {
           <table className="w-full text-sm border">
             <thead className="bg-gray-100">
               <tr>
-                <th className="p-2 border">Category</th>
-                <th className="p-2 border">Item</th>
-                <th className="p-2 border">Condition</th>
-                <th className="p-2 border">Cost (₹)</th>
-                <th className="p-2 border">Multiplier</th>
-                <th className="p-2 border">Total (₹)</th>
-                <th className="p-2 border">Work By</th>
-                <th className="p-2 border">Notes</th>
-                <th className="p-2 border">Actions</th>
+                <th className="p-2 border" style={{width: '30%'}}>Work</th>
+                <th className="p-2 border" style={{width: '10%'}}>Category</th>
+                <th className="p-2 border" style={{width: '10%'}}>Cost (₹)</th>
+                <th className="p-2 border" style={{width: '8%'}}>Qty</th>
+                <th className="p-2 border" style={{width: '10%'}}>Total (₹)</th>
+                <th className="p-2 border" style={{width: '10%'}}>Work Order</th>
+                <th className="p-2 border" style={{width: '12%'}}>Assigned To</th>
+                <th className="p-2 border" style={{width: '10%'}}>Actions</th>
               </tr>
             </thead>
             <tbody>
               {extraWork.length === 0 ? (
                 <tr>
-                  <td colSpan={9} className="text-center p-4 text-gray-500">
+                  <td colSpan={8} className="text-center p-4 text-gray-500">
                     No extra work added.
                   </td>
                 </tr>
               ) : (
                 extraWork.map((item, index) => (
                   <tr key={index} className="border-b">
+                    <td className="p-2">
+                      <input
+                        type="text"
+                        value={item.item}
+                        onChange={(e) =>
+                          handleExtraWorkChange(index, "item", e.target.value)
+                        }
+                        className="w-full p-1 border rounded"
+                        placeholder="Work description"
+                      />
+                    </td>
                     <td className="p-2">
                       <input
                         type="text"
@@ -373,20 +387,10 @@ const JobSheetStep = () => {
                     </td>
                     <td className="p-2">
                       <input
-                        type="text"
-                        value={item.item}
+                        type="number"
+                        value={item.cost}
                         onChange={(e) =>
-                          handleExtraWorkChange(index, "item", e.target.value)
-                        }
-                        className="w-full p-1 border rounded"
-                      />
-                    </td>
-                    <td className="p-2">
-                      <input
-                        type="text"
-                        value={item.condition}
-                        onChange={(e) =>
-                          handleExtraWorkChange(index, "condition", e.target.value)
+                          handleExtraWorkChange(index, "cost", e.target.value)
                         }
                         className="w-full p-1 border rounded"
                       />
@@ -394,37 +398,45 @@ const JobSheetStep = () => {
                     <td className="p-2">
                       <input
                         type="number"
-                        value={item.cost}
+                        value={item.multiplier}
                         onChange={(e) =>
-                          handleExtraWorkChange(index, "cost", e.target.value)
+                          handleExtraWorkChange(index, "multiplier", e.target.value)
                         }
-                        className="w-24 p-1 border rounded"
+                        className="w-full p-1 border rounded"
                       />
                     </td>
-                    <td className="p-2">{parseFloat(item.multiplier)}</td>
                     <td className="p-2">{calculateTotal(item).toFixed(2)}</td>
                     <td className="p-2">
                       <select
-                        value={item.workBy}
-                        onChange={(e) =>
-                          handleExtraWorkChange(index, "workBy", e.target.value)
-                        }
-                        className="p-1 border rounded w-full"
+                        value={item.workOrder || ''}
+                        onChange={(e) => {
+                          handleExtraWorkChange(index, "workOrder", e.target.value);
+                          handleExtraWorkChange(index, "assignedTo", '');
+                        }}
+                        className="w-full p-1 border rounded"
                       >
-                        <option value="Labour">Labour</option>
+                        <option value="">Select</option>
                         <option value="Vendor">Vendor</option>
+                        <option value="Labour">Labour</option>
                       </select>
                     </td>
                     <td className="p-2">
-                      <input
-                        type="text"
-                        value={item.notes}
+                      <select
+                        value={item.assignedTo || ''}
                         onChange={(e) =>
-                          handleExtraWorkChange(index, "notes", e.target.value)
+                          handleExtraWorkChange(index, "assignedTo", e.target.value)
                         }
-                        placeholder="Notes..."
                         className="w-full p-1 border rounded"
-                      />
+                        disabled={!item.workOrder}
+                      >
+                        <option value="">Select</option>
+                        {item.workOrder === 'Vendor' && vendors.map(v => (
+                          <option key={v.id} value={v.name}>{v.name}</option>
+                        ))}
+                        {item.workOrder === 'Labour' && labourers.map(l => (
+                          <option key={l.id} value={l.name}>{l.name}</option>
+                        ))}
+                      </select>
                     </td>
                     <td className="p-2">
                       <button
