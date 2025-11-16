@@ -20,11 +20,13 @@ import { localDB } from '@/utils/localDatabase';
 import { initDB, dbOperations } from '@/lib/db';
 import { syncManager } from '@/utils/jobSyncManager';
 import { authService } from '@/lib/auth';
+import useMultiplierStore from '@/store/multiplierStore';
 
 function App() {
   const { isAuthenticated, user } = useAuthStore();
   const [dbReady, setDbReady] = useState(false);
   const [dbInitialized, setDbInitialized] = useState(false);
+  const [autoLoginComplete, setAutoLoginComplete] = useState(false);
 
   // Initialize database on app startup (before authentication)
   useEffect(() => {
@@ -108,13 +110,73 @@ function App() {
     };
   }, [isAuthenticated, dbReady]);
 
-  // Show loading while database initializes
-  if (!dbReady) {
+  // Auto sign-in for dev/testing to skip login page
+  useEffect(() => {
+    const maybeAutoSignin = async () => {
+      if (!dbReady) return;
+      
+      try {
+        const store = useAuthStore.getState();
+        if (store.isAuthenticated) {
+          setAutoLoginComplete(true);
+          return;
+        }
+
+        // Always auto-login during dev/testing
+        const allowAuto = true; // Set to false when you want login page back
+
+        if (!allowAuto) {
+          setAutoLoginComplete(true);
+          return;
+        }
+
+        console.log('🔄 Starting auto-login...');
+
+        // Ensure default user exists
+        const users = await dbOperations.getAll('users');
+        if (!users || users.length === 0) {
+          console.log('Creating default user...');
+          await authService.signUp({
+            email: 'Shahidmultaniii',
+            password: 'S#d_8224',
+            name: 'Super Admin',
+            role: 'Super Admin',
+          });
+        }
+
+        // Perform login
+        console.log('Attempting auto-login...');
+        const success = await store.login('Shahidmultaniii', 'S#d_8224');
+        if (success) {
+          console.log('✅ Auto-login successful');
+        } else {
+          console.error('❌ Auto-login failed');
+        }
+        
+        setAutoLoginComplete(true);
+      } catch (e) {
+        console.error('Auto sign-in error:', e);
+        setAutoLoginComplete(true);
+      }
+    };
+    
+    // Add small delay to ensure DB is ready
+    const timer = setTimeout(() => {
+      maybeAutoSignin();
+    }, 500);
+    
+    return () => clearTimeout(timer);
+  }, [dbReady]);
+
+  // Show loading while database initializes or auto-login is in progress
+  if (!dbReady || !autoLoginComplete) {
     return (
       <div className="min-h-screen bg-gray-100 dark:bg-dark-background flex items-center justify-center">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-brand-red mx-auto mb-4"></div>
-          <p className="text-gray-600 dark:text-gray-400">Initializing application...</p>
+          <p className="text-gray-600 dark:text-gray-400">
+            {!dbReady ? 'Initializing application...' : 'Logging in...'}
+          </p>
         </div>
       </div>
     );

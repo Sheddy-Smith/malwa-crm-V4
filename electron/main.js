@@ -83,10 +83,62 @@ function createWindow() {
     mainWindow = null;
   });
 
+  // Enable right-click context menu
+  mainWindow.webContents.on('context-menu', (event, params) => {
+    const contextMenu = Menu.buildFromTemplate([
+      {
+        label: 'Reload',
+        click: () => mainWindow.reload(),
+      },
+      { type: 'separator' },
+      {
+        label: 'Zoom In',
+        click: () => {
+          const currentZoom = mainWindow.webContents.getZoomLevel();
+          mainWindow.webContents.setZoomLevel(currentZoom + 0.5);
+        },
+      },
+      {
+        label: 'Zoom Out',
+        click: () => {
+          const currentZoom = mainWindow.webContents.getZoomLevel();
+          mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
+        },
+      },
+      {
+        label: 'Reset Zoom',
+        click: () => mainWindow.webContents.setZoomLevel(0),
+      },
+      { type: 'separator' },
+      { label: 'Cut', role: 'cut', enabled: params.editFlags.canCut },
+      { label: 'Copy', role: 'copy', enabled: params.editFlags.canCopy },
+      { label: 'Paste', role: 'paste', enabled: params.editFlags.canPaste },
+      { label: 'Select All', role: 'selectAll' },
+      ...(isDev ? [
+        { type: 'separator' },
+        {
+          label: 'Inspect Element',
+          click: () => {
+            mainWindow.webContents.inspectElement(params.x, params.y);
+          },
+        },
+      ] : []),
+    ]);
+    contextMenu.popup();
+  });
+
   const menuTemplate = [
     {
       label: 'File',
       submenu: [
+        {
+          label: 'Reload',
+          accelerator: 'Ctrl+R',
+          click: () => {
+            mainWindow.reload();
+          },
+        },
+        { type: 'separator' },
         {
           label: 'Exit',
           accelerator: 'Alt+F4',
@@ -100,17 +152,34 @@ function createWindow() {
       label: 'View',
       submenu: [
         {
-          label: 'Reload',
-          accelerator: 'Ctrl+R',
-          click: () => {
-            mainWindow.reload();
-          },
+          label: 'Zoom Level',
+          submenu: [
+            {
+              label: '100%',
+              click: () => {
+                mainWindow.webContents.setZoomFactor(1.0);
+              },
+            },
+            {
+              label: '80%',
+              click: () => {
+                mainWindow.webContents.setZoomFactor(0.8);
+              },
+            },
+            {
+              label: '60%',
+              click: () => {
+                mainWindow.webContents.setZoomFactor(0.6);
+              },
+            },
+            {
+              label: '40%',
+              click: () => {
+                mainWindow.webContents.setZoomFactor(0.4);
+              },
+            },
+          ],
         },
-        ...(isDev ? [{
-          label: 'Toggle DevTools',
-          accelerator: 'Ctrl+Shift+I',
-          click: () => mainWindow.webContents.toggleDevTools(),
-        }] : []),
         { type: 'separator' },
         {
           label: 'Actual Size',
@@ -135,6 +204,12 @@ function createWindow() {
             mainWindow.webContents.setZoomLevel(currentZoom - 0.5);
           },
         },
+        { type: 'separator' },
+        ...(isDev ? [{
+          label: 'Toggle DevTools',
+          accelerator: 'Ctrl+Shift+I',
+          click: () => mainWindow.webContents.toggleDevTools(),
+        }] : []),
         { type: 'separator' },
         {
           label: 'Toggle Full Screen',

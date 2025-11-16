@@ -16,6 +16,7 @@ const ChalanStep = () => {
   const [records, setRecords] = useState([]);
   const [filteredRecords, setFilteredRecords] = useState([]);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "" });
 
   useEffect(() => {
     loadRecords();
@@ -35,16 +36,16 @@ const ChalanStep = () => {
   const handleSearch = (filters) => {
     let filtered = [...records];
     if (filters.vehicleNo) {
-      filtered = filtered.filter(r => r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase()));
+      filtered = filtered.filter(r => r.vehicle_no && r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase()));
     }
     if (filters.partyName) {
-      filtered = filtered.filter(r => r.party_name.toLowerCase().includes(filters.partyName.toLowerCase()));
+      filtered = filtered.filter(r => r.party_name && r.party_name.toLowerCase().includes(filters.partyName.toLowerCase()));
     }
     if (filters.dateFrom) {
-      filtered = filtered.filter(r => r.date >= filters.dateFrom);
+      filtered = filtered.filter(r => r.date && r.date >= filters.dateFrom);
     }
     if (filters.dateTo) {
-      filtered = filtered.filter(r => r.date <= filters.dateTo);
+      filtered = filtered.filter(r => r.date && r.date <= filters.dateTo);
     }
     setFilteredRecords(filtered);
   };
@@ -71,15 +72,25 @@ const ChalanStep = () => {
   const [jobSheetEstimate, setJobSheetEstimate] = useState([]);
   const [extraWork, setExtraWork] = useState([]);
   const [discount, setDiscount] = useState(0);
+  const [advancePayment, setAdvancePayment] = useState(0);
+  const [paymentStatus, setPaymentStatus] = useState('pending');
+  const [manualPayment, setManualPayment] = useState(0);
+  const [createInvoice, setCreateInvoice] = useState(false);
 
   useEffect(() => {
     const estimateData = JSON.parse(localStorage.getItem("jobSheetEstimate") || "[]");
     const extraData = JSON.parse(localStorage.getItem("extraWork") || "[]");
     const disc = parseFloat(localStorage.getItem("estimateDiscount")) || 0;
+    const advance = parseFloat(localStorage.getItem("estimateAdvancePayment")) || 0;
 
     setJobSheetEstimate(estimateData);
     setExtraWork(extraData);
     setDiscount(disc);
+    setAdvancePayment(advance);
+    try {
+      const raw = localStorage.getItem('jobsContext');
+      if (raw) setJobCtx(JSON.parse(raw));
+    } catch {}
   }, []);
 
   const { getCategoryMultiplier, getMultiplierByWorkType } = useMultiplierStore();
@@ -108,7 +119,8 @@ const ChalanStep = () => {
   );
 
   const grandTotal = subTotalEstimate + subTotalExtra;
-  const finalTotal = grandTotal - discount;
+  const totalAfterDiscount = grandTotal - discount;
+  const finalTotal = totalAfterDiscount - advancePayment;
 
   // ✅ Delete entry from localStorage + UI
   const handleDelete = (type, index) => {
@@ -132,7 +144,8 @@ const ChalanStep = () => {
       const pdfWidth = pdf.internal.pageSize.getWidth();
       const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
       pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      pdf.save("challan.pdf");
+      const filename = jobCtx.vehicleNo ? `${jobCtx.vehicleNo}_challan.pdf` : "challan.pdf";
+      pdf.save(filename);
     });
   };
 
@@ -148,21 +161,137 @@ const ChalanStep = () => {
       const subtotal = items.reduce((s, i) => s + (i.qty || 0) * (i.rate || 0), 0);
       const tax = 0;
       const total = subtotal - (discount || 0);
+      const vehicleNo = jobCtx.vehicleNo || '';
+      const date = new Date().toISOString().split('T')[0];
 
-      const challan = await dbOperations.insert('sell_challans', {
-        date: new Date().toISOString().split('T')[0],
+      // Check for duplicate with same vehicle and date
+      const allRecords = await dbOperations.getAll('sell_challans');
+      const existingRecord = allRecords.find(
+        record => record.vehicle_no === vehicleNo && record.date === date
+      );
+
+      const challanData = {
+        date: date,
+        vehicle_no: vehicleNo || undefined,
+        party_name: jobCtx.partyName || undefined,
         items,
         subtotal,
         tax,
+        discount: discount,
+        advance_payment: advancePayment,
         total,
+        payment_status: paymentStatus,
+        payment_received: manualPayment,
+        balance_due: finalTotal - manualPayment,
+        create_invoice: createInvoice,
         status: 'issued',
-      });
+      };
 
-      for (const it of items) {
-        await createStockMovement(undefined, it.productName, 'out', it.qty || 0, 'sell-challan', { challanId: challan.id });
+      let challanId = null;
+
+      if (existingRecord) {
+        // Show confirmation for update
+        const confirmed = window.confirm(
+          `A challan already exists for Vehicle: ${vehicleNo} on Date: ${date}.\n\nDo you want to UPDATE the existing record?`
+        );
+        
+        if (!confirmed) {
+          return;
+        }
+
+        await dbOperations.update('sell_challans', existingRecord.id, challanData);
+        challanId = existingRecord.id;
+        toast.success('Challan updated successfully');
+      } else {
+        // Create new record
+        const challan = await dbOperations.insert('sell_challans', challanData);
+        challanId = challan.id;
+
+        // Create stock movements only for new challans
+        for (const it of items) {
+          await createStockMovement(undefined, it.productName, 'out', it.qty || 0, 'sell-challan', { challanId: challan.id });
+        }
+
+        toast.success('Challan saved and stock updated');
       }
 
-      toast.success('Challan saved and stock updated');
+      // Update customer ledger if payment is received
+      if (manualPayment > 0 && jobCtx.partyName) {
+        try {
+          // Find customer by name
+          const customers = await dbOperations.getAll('customers');
+          const customer = customers.find(c => 
+            c.name.toLowerCase() === jobCtx.partyName.toLowerCase()
+          );
+
+          if (customer) {
+            // Create ledger entry for payment received
+            await dbOperations.insert('customer_ledger_entries', {
+              customer_id: customer.id,
+              entry_date: date,
+              type: 'payment',
+              description: `Payment for Challan - Vehicle: ${vehicleNo}`,
+              debit: 0,
+              credit: manualPayment,
+              reference_type: 'challan',
+              reference_id: challanId,
+            });
+
+            // Create ledger entry for challan amount (if not full payment)
+            if (finalTotal > manualPayment) {
+              await dbOperations.insert('customer_ledger_entries', {
+                customer_id: customer.id,
+                entry_date: date,
+                type: 'sale',
+                description: `Challan - Vehicle: ${vehicleNo}`,
+                debit: finalTotal,
+                credit: 0,
+                reference_type: 'challan',
+                reference_id: challanId,
+              });
+            }
+
+            toast.success('Customer ledger updated');
+          } else {
+            toast.warning('Customer not found. Ledger not updated.');
+          }
+        } catch (ledgerError) {
+          console.error('Ledger update error:', ledgerError);
+          toast.error('Failed to update customer ledger');
+        }
+      }
+
+      // Create invoice if requested
+      if (createInvoice && jobCtx.partyName) {
+        try {
+          const customers = await dbOperations.getAll('customers');
+          const customer = customers.find(c => 
+            c.name.toLowerCase() === jobCtx.partyName.toLowerCase()
+          );
+
+          if (customer) {
+            await dbOperations.insert('invoices', {
+              customer_id: customer.id,
+              invoice_no: `INV-${Date.now()}`,
+              date: date,
+              vehicle_no: vehicleNo,
+              items: items,
+              subtotal: subtotal,
+              tax: tax,
+              discount: discount,
+              total: finalTotal,
+              payment_received: manualPayment,
+              balance_due: finalTotal - manualPayment,
+              status: paymentStatus === 'full' ? 'paid' : 'pending',
+            });
+            toast.success('Invoice created successfully');
+          }
+        } catch (invoiceError) {
+          console.error('Invoice creation error:', invoiceError);
+          toast.error('Failed to create invoice');
+        }
+      }
+
       await loadRecords();
     } catch (e) {
       console.error(e);
@@ -189,6 +318,27 @@ const ChalanStep = () => {
 
       <Card>
         <div id="challan-body">
+          {/* Challan Header with Details */}
+          <div className="mb-4 border-b pb-4">
+            <h2 className="text-2xl font-bold text-center mb-4">CHALLAN</h2>
+            <table className="w-full text-sm border">
+              <tbody>
+                <tr>
+                  <td className="p-2 border bg-gray-50 font-semibold w-1/4">Party Name:</td>
+                  <td className="p-2 border">{jobCtx.partyName || '--'}</td>
+                  <td className="p-2 border bg-gray-50 font-semibold w-1/4">Date:</td>
+                  <td className="p-2 border">{new Date().toISOString().split('T')[0]}</td>
+                </tr>
+                <tr>
+                  <td className="p-2 border bg-gray-50 font-semibold">Vehicle Number:</td>
+                  <td className="p-2 border">{jobCtx.vehicleNo || '--'}</td>
+                  <td className="p-2 border bg-gray-50 font-semibold">Phone Number:</td>
+                  <td className="p-2 border">{jobCtx.contactNo || '--'}</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
           <h4 className="font-semibold mb-2">Tasks from Job Sheet</h4>
           <div className="overflow-x-auto">
             <table className="w-full text-sm border">
@@ -268,7 +418,54 @@ const ChalanStep = () => {
               <div>Subtotal (Estimate): ₹{subTotalEstimate.toFixed(2)}</div>
               <div>Subtotal (Extra Work): ₹{subTotalExtra.toFixed(2)}</div>
               <div>Estimate Discount: ₹{discount.toFixed(2)}</div>
+              <div className="font-semibold">Total: ₹{totalAfterDiscount.toFixed(2)}</div>
+              <div className="text-green-600">Advance Payment: ₹{advancePayment.toFixed(2)}</div>
               <div className="font-bold text-lg">Grand Total: ₹{finalTotal.toFixed(2)}</div>
+            </div>
+
+            {/* Payment Details Section */}
+            <div className="mt-6 border-t pt-4">
+              <h5 className="font-semibold mb-3">Payment Details</h5>
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div>
+                  <label className="block text-sm font-medium mb-2">Payment Status</label>
+                  <select
+                    value={paymentStatus}
+                    onChange={(e) => setPaymentStatus(e.target.value)}
+                    className="w-full p-2 border rounded"
+                  >
+                    <option value="pending">Pending</option>
+                    <option value="half">Half Paid</option>
+                    <option value="full">Full Paid</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium mb-2">Manual Payment Amount (₹)</label>
+                  <input
+                    type="number"
+                    value={manualPayment}
+                    onChange={(e) => setManualPayment(parseFloat(e.target.value) || 0)}
+                    className="w-full p-2 border rounded"
+                    placeholder="Enter payment received"
+                  />
+                </div>
+                <div className="flex items-end">
+                  <label className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={createInvoice}
+                      onChange={(e) => setCreateInvoice(e.target.checked)}
+                      className="w-4 h-4"
+                    />
+                    <span className="text-sm font-medium">Create Invoice</span>
+                  </label>
+                </div>
+              </div>
+              <div className="mt-3 text-right">
+                <div className="text-sm">Total: ₹{finalTotal.toFixed(2)}</div>
+                <div className="text-sm">Payment Received: ₹{manualPayment.toFixed(2)}</div>
+                <div className="text-sm font-bold text-red-600">Balance Due: ₹{(finalTotal - manualPayment).toFixed(2)}</div>
+              </div>
             </div>
           </div>
         </div>

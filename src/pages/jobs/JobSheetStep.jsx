@@ -10,6 +10,7 @@ import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import ConfirmModal from "@/components/ui/ConfirmModal";
 import supabase from "@/lib/supabase";
+import { dbOperations } from "@/lib/db";
 import { toast } from "sonner";
 
 const JobSheetStep = () => {
@@ -22,30 +23,32 @@ const JobSheetStep = () => {
   }, []);
 
   const loadRecords = async () => {
-    const { data, error } = await supabase
-      .from('jobs_jobsheet')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (!error && data) {
-      setRecords(data);
-      setFilteredRecords(data);
+    try {
+      const data = await dbOperations.getAll('jobsheets');
+      const sorted = (data || []).sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+      setRecords(sorted);
+      setFilteredRecords(sorted);
+    } catch (error) {
+      console.error('Failed to load job sheets:', error);
+      toast.error('Failed to load job sheets');
     }
   };
 
   const handleSearch = (filters) => {
     let filtered = [...records];
     if (filters.vehicleNo) {
-      filtered = filtered.filter(r => r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase()));
+      filtered = filtered.filter(r => r.vehicle_no && r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase()));
     }
     if (filters.partyName) {
-      filtered = filtered.filter(r => r.party_name.toLowerCase().includes(filters.partyName.toLowerCase()));
+      filtered = filtered.filter(r => r.party_name && r.party_name.toLowerCase().includes(filters.partyName.toLowerCase()));
     }
     if (filters.dateFrom) {
-      filtered = filtered.filter(r => r.date >= filters.dateFrom);
+      filtered = filtered.filter(r => r.date && r.date >= filters.dateFrom);
     }
     if (filters.dateTo) {
-      filtered = filtered.filter(r => r.date <= filters.dateTo);
+      filtered = filtered.filter(r => r.date && r.date <= filters.dateTo);
     }
     setFilteredRecords(filtered);
   };
@@ -59,25 +62,24 @@ const JobSheetStep = () => {
   };
 
   const handleDeleteRecord = async (id) => {
-    const { error } = await supabase
-      .from('jobs_jobsheet')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
+    try {
+      await dbOperations.delete('jobsheets', id);
+      toast.success('Job sheet deleted successfully');
+      loadRecords();
+      setDeleteConfirmId(null);
+    } catch (error) {
+      console.error('Failed to delete job sheet:', error);
       toast.error('Failed to delete job sheet');
-      return;
     }
-
-    toast.success('Job sheet deleted successfully');
-    loadRecords();
-    setDeleteConfirmId(null);
   };
   // Load data directly from Vehicle Inspection (Inspection Items)
   const [estimateItems, setEstimateItems] = useState(() => {
     const saved = localStorage.getItem("inspectionItems");
     return saved ? JSON.parse(saved) : [];
   });
+
+  // Status state
+  const [jobStatus, setJobStatus] = useState('pending');
 
   // Auto load saved workBy & notes if present in jobSheetEstimate
   useEffect(() => {
@@ -113,10 +115,56 @@ const JobSheetStep = () => {
     setEstimateItems(updated);
   };
 
-  // Save Notes & WorkBy to localStorage
-  const saveEstimate = () => {
-    localStorage.setItem("jobSheetEstimate", JSON.stringify(estimateItems));
-    alert("✅ Notes & Work By saved successfully!");
+  // Save Notes & WorkBy to localStorage and database
+  const saveJobSheet = async () => {
+    try {
+      // Save to localStorage
+      localStorage.setItem("jobSheetEstimate", JSON.stringify(estimateItems));
+      localStorage.setItem("extraWork", JSON.stringify(extraWork));
+
+      const vehicleNo = jobCtx.vehicleNo || '';
+      const date = jobCtx.date || new Date().toISOString().split('T')[0];
+
+      // Check for existing record with same vehicle number and date
+      const allRecords = await dbOperations.getAll('jobsheets');
+      const existingRecord = allRecords.find(
+        record => record.vehicle_no === vehicleNo && record.date === date
+      );
+
+      const jobSheetData = {
+        vehicle_no: vehicleNo,
+        party_name: jobCtx.partyName || '',
+        date: date,
+        inspection_items: estimateItems,
+        extra_work: extraWork,
+        subtotal_inspection: estimateSubTotal,
+        subtotal_extra: extraWorkSubTotal,
+        discount: discount,
+        grand_total: finalTotal,
+        status: jobStatus
+      };
+
+      if (existingRecord) {
+        // Show confirmation for update
+        const confirmed = window.confirm(
+          `A job sheet already exists for Vehicle: ${vehicleNo} on Date: ${date}.\n\nDo you want to UPDATE the existing record?`
+        );
+        
+        if (confirmed) {
+          await dbOperations.update('jobsheets', existingRecord.id, jobSheetData);
+          toast.success('Job Sheet updated successfully!');
+          await loadRecords();
+        }
+      } else {
+        // Create new record
+        await dbOperations.insert('jobsheets', jobSheetData);
+        toast.success('Job Sheet saved successfully!');
+        await loadRecords();
+      }
+    } catch (error) {
+      console.error(error);
+      toast.error('Failed to save job sheet');
+    }
   };
 
   // Extra Work Section
@@ -146,11 +194,6 @@ const JobSheetStep = () => {
     setExtraWork(updated);
   };
 
-  const saveExtraWork = () => {
-    localStorage.setItem("extraWork", JSON.stringify(extraWork));
-    alert("✅ Extra Work saved successfully!");
-  };
-
   const deleteExtraWork = (index) => {
     const updated = extraWork.filter((_, i) => i !== index);
     setExtraWork(updated);
@@ -171,17 +214,47 @@ const JobSheetStep = () => {
   const discount = parseFloat(localStorage.getItem("estimateDiscount")) || 0;
   const finalTotal = grandTotal - discount;
 
+  // Prefill context from Inspection (vehicle/party)
+  const [jobCtx, setJobCtx] = useState({ vehicleNo: "", partyName: "", contactNo: "", date: "" });
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem('jobsContext');
+      if (raw) setJobCtx(JSON.parse(raw));
+    } catch {}
+  }, []);
+
   return (
     <div className="space-y-6 p-4">
       <h3 className="text-xl font-bold">Job Sheet</h3>
+
+      {/* Context Header */}
+      {(jobCtx.vehicleNo || jobCtx.partyName) && (
+        <div className="border rounded-lg p-3 shadow bg-gray-50">
+          <div className="grid grid-cols-4 gap-4">
+            <div className="text-sm font-medium">Vehicle: <span className="font-semibold">{jobCtx.vehicleNo}</span></div>
+            <div className="text-sm font-medium">Party: <span className="font-semibold">{jobCtx.partyName}</span></div>
+            <div className="text-sm font-medium">Contact: <span className="font-semibold">{jobCtx.contactNo}</span></div>
+            <div className="text-sm font-medium">
+              Status: 
+              <select
+                value={jobStatus}
+                onChange={(e) => setJobStatus(e.target.value)}
+                className="ml-2 p-1 border rounded font-semibold"
+              >
+                <option value="pending">Pending</option>
+                <option value="in-progress">In Progress</option>
+                <option value="completed">Completed</option>
+                <option value="on-hold">On Hold</option>
+              </select>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Tasks from Inspection */}
       <div className="border rounded-lg p-4 shadow">
         <div className="flex justify-between items-center mb-2">
           <h4 className="font-semibold">Tasks from Inspection</h4>
-          <button onClick={saveEstimate}>
-            <Save className="bg-white text-green-500 rounded text-xl" />
-          </button>
         </div>
 
         <div className="overflow-x-auto">
@@ -259,9 +332,6 @@ const JobSheetStep = () => {
               className="flex items-center gap-1 bg-gray-200 px-3 py-1 rounded hover:bg-gray-300"
             >
               ➕ Add Extra Work
-            </button>
-            <button onClick={saveExtraWork}>
-              <Save className="bg-white text-green-500 rounded text-xl" />
             </button>
           </div>
         </div>
@@ -381,6 +451,19 @@ const JobSheetStep = () => {
         <div>Grand Total: ₹{grandTotal.toFixed(2)}</div>
         <div>Estimate Discount: ₹{discount.toFixed(2)}</div>
         <div>Final Total: ₹{finalTotal.toFixed(2)}</div>
+      </div>
+
+      {/* Save Job Sheet Button */}
+      <div className="mt-6 flex justify-end">
+        <button
+          onClick={saveJobSheet}
+          className="bg-blue-600 hover:bg-blue-700 text-white px-6 py-3 rounded-lg font-semibold flex items-center gap-2 shadow-md transition-colors"
+        >
+          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7H5a2 2 0 00-2 2v9a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-3m-1 4l-3 3m0 0l-3-3m3 3V4" />
+          </svg>
+          Save Job Sheet
+        </button>
       </div>
 
       <JobSearchBar onSearch={handleSearch} onReset={handleReset} />

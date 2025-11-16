@@ -139,7 +139,7 @@ const ManualEntryForm = ({ labourId, entry, onSave, onCancel }) => {
 };
 
 const LabourLedgerTab = () => {
-  const { labours, fetchLabour } = useLabourStore();
+  const { labour: labours, fetchLabour } = useLabourStore();
   const [selectedLabourId, setSelectedLabourId] = useState('');
   const [ledgerEntries, setLedgerEntries] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -268,7 +268,8 @@ const LabourLedgerTab = () => {
 
   const calculateRunningBalance = () => {
     let balance = 0;
-    return ledgerEntries.map((entry) => {
+    const entries = ledgerEntries || [];
+    return entries.map((entry) => {
       balance += parseFloat(entry.debit_amount || 0) - parseFloat(entry.credit_amount || 0);
       return { ...entry, running_balance: balance };
     });
@@ -279,7 +280,7 @@ const LabourLedgerTab = () => {
     ? entriesWithBalance[entriesWithBalance.length - 1].running_balance
     : 0;
 
-  const selectedLabour = labours.find((l) => l.id === selectedLabourId);
+  const selectedLabour = (labours || []).find((l) => l.id === selectedLabourId);
 
   const exportToCSV = () => {
     if (!selectedLabour) {

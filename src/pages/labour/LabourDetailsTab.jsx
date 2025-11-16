@@ -119,7 +119,7 @@ const LabourForm = ({ labour, onSave, onCancel }) => {
 };
 
 const LabourDetailsTab = () => {
-  const { labours, fetchLabour, updateLabour, deleteLabour, loading } = useLabourStore();
+  const { labour: labours, fetchLabour, updateLabour, deleteLabour, loading } = useLabourStore();
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingLabour, setEditingLabour] = useState(null);
   const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
@@ -191,7 +191,7 @@ const LabourDetailsTab = () => {
     toast.success('Print dialog opened');
   };
 
-  const filteredLabours = labours.filter(
+  const filteredLabours = (labours || []).filter(
     (l) =>
       l.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
       l.phone?.includes(searchTerm) ||

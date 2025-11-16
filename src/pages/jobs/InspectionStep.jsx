@@ -1,4 +1,5 @@
 import { useState, useEffect } from "react";
+import { useNavigate } from "react-router-dom";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
 import Modal from "@/components/ui/Modal";
@@ -7,14 +8,17 @@ import { PlusCircle, Trash2, Edit, Save, X } from "lucide-react";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
 import JobReportList from "@/components/jobs/JobReportList";
 import useAuthStore from "@/store/authStore";
-import supabase from "@/lib/supabase";
+import { dbOperations } from "@/lib/db";
+import useMultiplierStore from "@/store/multiplierStore";
 import { toast } from "sonner";
 
 const InspectionStep = () => {
   const { user } = useAuthStore();
+  const navigate = useNavigate();
   const [details, setDetails] = useState({
     vehicleNo: "",
     ownerName: "",
+    contactNo: "",
     inspectionDate: new Date().toISOString().split('T')[0],
     branch: "",
     status: "in-progress",
@@ -30,34 +34,19 @@ const InspectionStep = () => {
   const [showStatusModal, setShowStatusModal] = useState(false);
   const [deleteConfirmId, setDeleteConfirmId] = useState(null);
 
-  const multipliers = {
-    Hardware: 2,
-    Steel: 1.5,
-    Labour: 2,
-    Parts: 1.5,
-  };
+  const { getCategoryMultiplier } = useMultiplierStore();
 
   useEffect(() => {
-    const loadCats = () => {
+    const loadCats = async () => {
       try {
-        const saved = localStorage.getItem("categories");
-        setCategories(saved ? JSON.parse(saved) : []);
+        const data = await dbOperations.getAll('inventory_categories');
+        const sorted = (data || []).sort((a,b) => String(a.name).localeCompare(String(b.name)));
+        setCategories(sorted);
       } catch {
         setCategories([]);
       }
     };
     loadCats();
-
-    const onCats = () => loadCats();
-    const onStorage = (e) => { if (e.key === "categories") loadCats(); };
-
-    window.addEventListener("categoriesUpdated", onCats);
-    window.addEventListener("storage", onStorage);
-
-    return () => {
-      window.removeEventListener("categoriesUpdated", onCats);
-      window.removeEventListener("storage", onStorage);
-    };
   }, []);
 
   useEffect(() => {
@@ -65,18 +54,15 @@ const InspectionStep = () => {
   }, []);
 
   const loadRecords = async () => {
-    const { data, error } = await supabase
-      .from('jobs_inspection')
-      .select('*')
-      .order('created_at', { ascending: false });
-
-    if (error) {
+    try {
+      const data = await dbOperations.getAll('inspections');
+      const sorted = (data || []).sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+      setRecords(sorted);
+      setFilteredRecords(sorted);
+    } catch (e) {
+      console.error(e);
       toast.error('Failed to load inspection records');
-      return;
     }
-
-    setRecords(data || []);
-    setFilteredRecords(data || []);
   };
 
   const handleSearch = (filters) => {
@@ -84,22 +70,22 @@ const InspectionStep = () => {
 
     if (filters.vehicleNo) {
       filtered = filtered.filter(r =>
-        r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase())
+        r.vehicle_no && r.vehicle_no.toLowerCase().includes(filters.vehicleNo.toLowerCase())
       );
     }
 
     if (filters.partyName) {
       filtered = filtered.filter(r =>
-        r.party_name.toLowerCase().includes(filters.partyName.toLowerCase())
+        r.party_name && r.party_name.toLowerCase().includes(filters.partyName.toLowerCase())
       );
     }
 
     if (filters.dateFrom) {
-      filtered = filtered.filter(r => r.date >= filters.dateFrom);
+      filtered = filtered.filter(r => r.date && r.date >= filters.dateFrom);
     }
 
     if (filters.dateTo) {
-      filtered = filtered.filter(r => r.date <= filters.dateTo);
+      filtered = filtered.filter(r => r.date && r.date <= filters.dateTo);
     }
 
     setFilteredRecords(filtered);
@@ -111,81 +97,106 @@ const InspectionStep = () => {
 
   const handleDetailChange = (e) => setDetails({ ...details, [e.target.name]: e.target.value });
 
-  const saveDetails = async () => {
+  const saveDetails = async (itemsOverride = null) => {
     if (!details.vehicleNo || !details.ownerName) {
       toast.error('Vehicle No and Owner Name are required');
       return;
     }
+    const workingItems = Array.isArray(itemsOverride) ? itemsOverride : (Array.isArray(items) ? items : []);
+    // Normalize items with computed totals for a single save
+    const normalizedItems = workingItems.map((it) => {
+      const cat = (it.category || '').trim();
+      const mult = parseFloat(it.multiplier ?? getCategoryMultiplier(cat)) || 1;
+      const cost = parseFloat(it.cost) || 0;
+      const total = parseFloat((cost * mult).toFixed(2));
+      return {
+        name: it.item ?? it.name ?? '',
+        category: cat,
+        condition: it.condition,
+        cost,
+        multiplier: mult,
+        total,
+      };
+    });
 
     const payload = {
       vehicle_no: details.vehicleNo,
       party_name: details.ownerName,
+      phone: details.contactNo || '',
       date: details.inspectionDate,
       branch: details.branch,
       status: details.status,
-  items: items,
-  user_id: user?.id,
+      items: normalizedItems,
+      user_id: user?.id,
     };
 
-    if (currentRecordId) {
-      const { error } = await supabase
-        .from('jobs_inspection')
-        .update(payload)
-        .eq('id', currentRecordId);
-
-      if (error) {
-        toast.error('Failed to update inspection');
-        return;
+    try {
+      if (currentRecordId) {
+        await dbOperations.update('inspections', currentRecordId, payload);
+        toast.success('Inspection updated successfully');
+      } else {
+        const rec = await dbOperations.insert('inspections', payload);
+        setCurrentRecordId(rec.id);
+        toast.success('Inspection saved successfully');
       }
 
-      toast.success('Inspection updated successfully');
-    } else {
-      const { data, error } = await supabase
-        .from('jobs_inspection')
-        .insert([payload])
-        .select()
-        .single();
-
-      if (error) {
-        toast.error('Failed to save inspection');
-        return;
+      // Create/Update customer contact by phone/name
+      if (details.contactNo) {
+        const existing = await dbOperations.getByIndex('customers', 'phone', details.contactNo);
+        if (existing && existing.length > 0) {
+          const c = existing[0];
+          await dbOperations.update('customers', c.id, { name: details.ownerName || c.name, phone: details.contactNo });
+        } else {
+          await dbOperations.insert('customers', {
+            name: details.ownerName,
+            phone: details.contactNo,
+            type: 'customer'
+          });
+        }
       }
 
-      setCurrentRecordId(data.id);
-      toast.success('Inspection saved successfully');
+      await loadRecords();
+    } catch (e) {
+      console.error(e);
+      toast.error('Failed to save inspection');
     }
-
-    loadRecords();
   };
 
   const addRow = () => setNewItem({ item: "", category: "", condition: "OK", cost: "0", multiplier: 1 });
 
-  const saveNewRow = () => {
+  const saveNewRow = async () => {
     if (!newItem || !newItem.item?.trim()) {
       toast.error("Enter item name");
       return;
     }
-    setItems([...items, newItem]);
+    const nextItems = [...items, newItem];
+    setItems(nextItems);
     setNewItem(null);
+    await saveDetails(nextItems);
   };
 
   const editRow = (index) => setEditingIndex(index);
 
-  const saveEditRow = (index) => {
+  const saveEditRow = async (index) => {
     const it = items[index];
     if (!it || !it.item?.trim()) {
       toast.error("Item cannot be empty");
       return;
     }
     setEditingIndex(null);
+    await saveDetails(items);
   };
 
-  const deleteRow = (index) => setItems(items.filter((_, i) => i !== index));
+  const deleteRow = async (index) => {
+    const nextItems = items.filter((_, i) => i !== index);
+    setItems(nextItems);
+    await saveDetails(nextItems);
+  };
 
   const calculateTotal = (item) => {
     const cost = parseFloat(item?.cost) || 0;
-    const multiplier = parseFloat(item?.multiplier) || multipliers[item?.category?.trim()] || 1;
-    return (cost * multiplier).toFixed(2);
+    const mult = parseFloat(item?.multiplier ?? getCategoryMultiplier(item?.category?.trim() || '')) || 1;
+    return (cost * mult).toFixed(2);
   };
 
   const handleEditRecord = (record) => {
@@ -193,35 +204,40 @@ const InspectionStep = () => {
     setDetails({
       vehicleNo: record.vehicle_no,
       ownerName: record.party_name,
+      contactNo: record.phone || '',
       inspectionDate: record.date,
       branch: record.branch,
       status: record.status,
     });
-    setItems(record.items || []);
+    const uiItems = (record.items || []).map((it) => ({
+      item: it.item ?? it.name ?? '',
+      category: it.category ?? '',
+      condition: it.condition ?? 'OK',
+      cost: it.cost ?? 0,
+      multiplier: it.multiplier ?? getCategoryMultiplier((it.category ?? '').trim()) ?? 1,
+    }));
+    setItems(uiItems);
     window.scrollTo({ top: 0, behavior: 'smooth' });
     toast.info('Record loaded for editing');
   };
 
   const handleDeleteRecord = async (id) => {
-    const { error } = await supabase
-      .from('jobs_inspection')
-      .delete()
-      .eq('id', id);
-
-    if (error) {
+    try {
+      await dbOperations.delete('inspections', id);
+      toast.success('Inspection deleted successfully');
+      await loadRecords();
+      setDeleteConfirmId(null);
+    } catch (e) {
+      console.error(e);
       toast.error('Failed to delete inspection');
-      return;
     }
-
-    toast.success('Inspection deleted successfully');
-    loadRecords();
-    setDeleteConfirmId(null);
 
     if (currentRecordId === id) {
       setCurrentRecordId(null);
       setDetails({
         vehicleNo: "",
         ownerName: "",
+        contactNo: "",
         inspectionDate: new Date().toISOString().split('T')[0],
         branch: "",
         status: "in-progress",
@@ -235,6 +251,7 @@ const InspectionStep = () => {
     setDetails({
       vehicleNo: "",
       ownerName: "",
+      contactNo: "",
       inspectionDate: new Date().toISOString().split('T')[0],
       branch: "",
       status: "in-progress",
@@ -242,6 +259,65 @@ const InspectionStep = () => {
     setItems([]);
     toast.info('Ready for new inspection');
   };
+
+  const handleNext = async () => {
+    if (!details.vehicleNo || !details.ownerName) {
+      toast.error('Vehicle No and Owner Name are required before proceeding to Estimate');
+      return;
+    }
+    if (items.length === 0) {
+      toast.error('Add at least one inspection item before proceeding to Estimate');
+      return;
+    }
+    
+    // Normalize items for localStorage in the shape Estimate expects
+    const estimateItems = items.map((it) => ({
+      item: it.item || it.name || '',
+      category: (it.category || '').trim(),
+      condition: it.condition || 'OK',
+      cost: parseFloat(it.cost) || 0,
+      multiplier: parseFloat(it.multiplier ?? getCategoryMultiplier((it.category || '').trim())) || 1,
+    }));
+    
+    // Persist meta so downstream job steps can prefill header/details
+    try {
+      const ctx = {
+        vehicleNo: details.vehicleNo,
+        partyName: details.ownerName,
+        contactNo: details.contactNo || '',
+        date: details.inspectionDate
+      };
+      localStorage.setItem('jobsContext', JSON.stringify(ctx));
+    } catch {}
+
+    localStorage.setItem('inspectionItems', JSON.stringify(estimateItems));
+    await saveDetails();
+    navigate('/jobs?step=estimate');
+  };
+
+  // On unmount (e.g., navigating via Jobs step Next), persist items for Estimate static view
+  useEffect(() => {
+    return () => {
+      if (!items || items.length === 0) return;
+      const estimateItems = items.map((it) => ({
+        item: it.item || it.name || '',
+        category: (it.category || '').trim(),
+        condition: it.condition || 'OK',
+        cost: parseFloat(it.cost) || 0,
+        multiplier: parseFloat(it.multiplier ?? getCategoryMultiplier((it.category || '').trim())) || 1,
+      }));
+      try {
+        localStorage.setItem('inspectionItems', JSON.stringify(estimateItems));
+        const ctx = {
+          vehicleNo: details.vehicleNo,
+          partyName: details.ownerName,
+          contactNo: details.contactNo || '',
+          date: details.inspectionDate
+        };
+        localStorage.setItem('jobsContext', JSON.stringify(ctx));
+      } catch {}
+    };
+  }, [items, details.vehicleNo, details.ownerName, details.contactNo, details.inspectionDate]);
 
   return (
     <div className="space-y-4">
@@ -276,6 +352,16 @@ const InspectionStep = () => {
             />
           </div>
           <div>
+            <label className="font-medium">Contact Number:</label>
+            <input
+              type="tel"
+              name="contactNo"
+              value={details.contactNo}
+              onChange={handleDetailChange}
+              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+            />
+          </div>
+          <div>
             <label className="font-medium">Inspection Date:</label>
             <input
               type="date"
@@ -295,25 +381,14 @@ const InspectionStep = () => {
               className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
           </div>
-          <div>
-            <label className="font-medium">Status:</label>
-            <select
-              name="status"
-              value={details.status}
-              onChange={handleDetailChange}
-              className="w-full mt-1 p-2 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
-            >
-              <option value="in-progress">Work in Progress</option>
-              <option value="complete">Complete</option>
-              <option value="hold">Hold for Material</option>
-            </select>
-          </div>
+          {/* Status field removed as per requirement */}
         </div>
-        <div className="flex justify-end mt-4">
+        <div className="flex justify-end mt-4 gap-2">
           <Button onClick={saveDetails}>
             <Save className="h-4 w-4 mr-2" />
             {currentRecordId ? 'Update Details' : 'Save Details'}
           </Button>
+          <Button variant="secondary" onClick={handleNext}>Next</Button>
         </div>
       </Card>
 
@@ -349,9 +424,9 @@ const InspectionStep = () => {
                       <input
                         type="text"
                         value={it.category}
-                        onChange={(e) => { const copy = [...items]; copy[index] = { ...copy[index], category: e.target.value }; setItems(copy); }}
-                        list="items-list"
-                        placeholder="Type or select category"
+                        onChange={(e) => { const copy = [...items]; const cat = e.target.value; const mult = getCategoryMultiplier(cat.trim()); copy[index] = { ...copy[index], category: cat, multiplier: mult }; setItems(copy); }}
+                        list="categories-list"
+                        placeholder="Select category"
                         className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                       />
                     </td>
@@ -378,7 +453,7 @@ const InspectionStep = () => {
                     <td className="p-2">
                       <input
                         type="number"
-                        value={it.multiplier ?? multipliers[it.category] ?? 1}
+                        value={it.multiplier ?? getCategoryMultiplier(it.category?.trim() || '') ?? 1}
                         onChange={(e) => { const copy = [...items]; copy[index] = { ...copy[index], multiplier: parseFloat(e.target.value) || 1 }; setItems(copy); }}
                         className="w-24 p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                         placeholder="Multiplier"
@@ -392,7 +467,7 @@ const InspectionStep = () => {
                   </tr>
                 ) : (
                   <tr key={index}>
-                    <td className="p-2">{it.item}</td>
+                    <td className="p-2">{it.item || it.name}</td>
                     <td className="p-2">{it.category}</td>
                     <td className="p-2">{it.condition}</td>
                     <td className="p-2">{it.cost}</td>
@@ -422,9 +497,9 @@ const InspectionStep = () => {
                     <input
                       type="text"
                       value={newItem.category}
-                      onChange={(e) => setNewItem({ ...newItem, category: e.target.value })}
-                      list="items-list"
-                      placeholder="Type or select category"
+                        onChange={(e) => { const cat = e.target.value; const mult = getCategoryMultiplier(cat.trim()); setNewItem({ ...newItem, category: cat, multiplier: mult }); }}
+                      list="categories-list"
+                      placeholder="Select category"
                       className="w-full p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                     />
                   </td>
@@ -451,7 +526,7 @@ const InspectionStep = () => {
                   <td className="p-2">
                     <input
                       type="number"
-                      value={newItem.multiplier ?? multipliers[newItem.category] ?? 1}
+                      value={newItem.multiplier ?? getCategoryMultiplier(newItem.category?.trim() || '') ?? 1}
                       onChange={(e) => setNewItem({ ...newItem, multiplier: parseFloat(e.target.value) || 1 })}
                       className="w-24 p-1 border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
                       placeholder="Multiplier"
@@ -484,6 +559,7 @@ const InspectionStep = () => {
         onEdit={handleEditRecord}
         onDelete={(id) => setDeleteConfirmId(id)}
         stepName="Inspection"
+        showStatus={false}
       />
 
       <ConfirmModal
@@ -495,7 +571,10 @@ const InspectionStep = () => {
       />
 
       <datalist id="items-list">
-        {categories.map((cat, i) => <option key={i} value={cat.name} />)}
+        {/* keep for future item suggestions if needed */}
+      </datalist>
+      <datalist id="categories-list">
+        {categories.map((cat) => <option key={cat.id} value={cat.name} />)}
       </datalist>
     </div>
   );

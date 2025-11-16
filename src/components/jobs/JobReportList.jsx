@@ -13,7 +13,7 @@ const STATUS_LABELS = {
   'hold': 'Hold for Material',
 };
 
-const JobReportList = ({ records, onEdit, onDelete, stepName }) => {
+const JobReportList = ({ records, onEdit, onDelete, stepName, showStatus = true }) => {
   if (records.length === 0) {
     return (
       <div className="text-center py-8 text-gray-500 dark:text-gray-400">
@@ -31,9 +31,12 @@ const JobReportList = ({ records, onEdit, onDelete, stepName }) => {
         <table className="w-full text-sm border border-gray-200 dark:border-gray-700">
           <thead className="bg-gray-100 dark:bg-gray-800 text-left">
             <tr>
-              <th className="p-3 border-b dark:border-gray-700">Status</th>
+              {showStatus && (
+                <th className="p-3 border-b dark:border-gray-700">Status</th>
+              )}
               <th className="p-3 border-b dark:border-gray-700">Vehicle No</th>
               <th className="p-3 border-b dark:border-gray-700">Party Name</th>
+              <th className="p-3 border-b dark:border-gray-700">Contact</th>
               <th className="p-3 border-b dark:border-gray-700">Date</th>
               <th className="p-3 border-b dark:border-gray-700">Branch</th>
               <th className="p-3 border-b dark:border-gray-700 text-right">Actions</th>
@@ -45,21 +48,24 @@ const JobReportList = ({ records, onEdit, onDelete, stepName }) => {
                 key={record.id}
                 className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
               >
-                <td className="p-3">
-                  <div className="flex items-center gap-2">
-                    <div
-                      className={`w-3 h-3 rounded-full ${STATUS_COLORS[record.status]}`}
-                      title={STATUS_LABELS[record.status]}
-                    />
-                    <span className="text-xs text-gray-600 dark:text-gray-400">
-                      {STATUS_LABELS[record.status]}
-                    </span>
-                  </div>
-                </td>
+                {showStatus && (
+                  <td className="p-3">
+                    <div className="flex items-center gap-2">
+                      <div
+                        className={`w-3 h-3 rounded-full ${STATUS_COLORS[record.status]}`}
+                        title={STATUS_LABELS[record.status]}
+                      />
+                      <span className="text-xs text-gray-600 dark:text-gray-400">
+                        {STATUS_LABELS[record.status]}
+                      </span>
+                    </div>
+                  </td>
+                )}
                 <td className="p-3 font-medium text-gray-900 dark:text-white">
-                  {record.vehicleNo}
+                  {record.vehicleNo || record.vehicle_no}
                 </td>
-                <td className="p-3 text-gray-700 dark:text-gray-300">{record.partyName}</td>
+                <td className="p-3 text-gray-700 dark:text-gray-300">{record.partyName || record.party_name}</td>
+                <td className="p-3 text-gray-700 dark:text-gray-300">{record.phone || record.contact || record.contact_no || ''}</td>
                 <td className="p-3 text-gray-700 dark:text-gray-300">
                   {new Date(record.date).toLocaleDateString()}
                 </td>
