@@ -165,77 +165,134 @@ const JobSheetStep = () => {
           // Combine inspection items and extra work
           const allItems = [...estimateItems, ...extraWork];
           
+          // Group items by vendor/labour
+          const vendorGroups = {};
+          const labourGroups = {};
+          
           for (const item of allItems) {
             if (item.workOrder && item.assignedTo && calculateTotal(item) > 0) {
               const amount = calculateTotal(item);
               const workDescription = item.item || 'Work';
               
               if (item.workOrder === 'Vendor') {
-                // Find vendor by name
                 const vendor = vendors.find(v => v.name === item.assignedTo);
                 if (vendor) {
-                  try {
-                    // Add vendor ledger entry
-                    await dbOperations.insert('vendor_ledger_entries', {
-                      vendor_id: vendor.id,
-                      entry_date: date,
-                      particulars: workDescription,
-                      category: item.category || '',
-                      debit_amount: amount,
-                      credit_amount: 0,
-                      vehicle_no: vehicleNo,
-                      owner_name: jobCtx.partyName || '',
-                      reference_type: 'job_sheet',
-                      reference_no: vehicleNo,
-                      entry_type: 'job_sheet'
-                    });
-                    
-                    // Update vendor balance
-                    const entries = await dbOperations.getByIndex('vendor_ledger_entries', 'vendor_id', vendor.id);
-                    const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
-                    await dbOperations.update('vendors', vendor.id, {
-                      current_balance: (vendor.opening_balance || 0) + balance
-                    });
-                  } catch (err) {
-                    console.error('Error adding vendor ledger entry:', err);
+                  if (!vendorGroups[vendor.id]) {
+                    vendorGroups[vendor.id] = {
+                      vendor: vendor,
+                      works: [],
+                      totalAmount: 0
+                    };
                   }
+                  vendorGroups[vendor.id].works.push(workDescription);
+                  vendorGroups[vendor.id].totalAmount += amount;
                 }
               } else if (item.workOrder === 'Labour') {
-                // Find labour by name
                 const labour = labourers.find(l => l.name === item.assignedTo);
                 if (labour) {
-                  try {
-                    // Add labour ledger entry
-                    await dbOperations.insert('labour_ledger_entries', {
-                      labour_id: labour.id,
-                      entry_date: date,
-                      particulars: workDescription,
-                      category: item.category || '',
-                      debit_amount: amount,
-                      credit_amount: 0,
-                      vehicle_no: vehicleNo,
-                      owner_name: jobCtx.partyName || '',
-                      reference_type: 'job_sheet',
-                      reference_no: vehicleNo,
-                      entry_type: 'job_sheet'
-                    });
-                    
-                    // Update labour balance
-                    const entries = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', labour.id);
-                    const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
-                    await dbOperations.update('labour', labour.id, {
-                      current_balance: (labour.opening_balance || 0) + balance
-                    });
-                  } catch (err) {
-                    console.error('Error adding labour ledger entry:', err);
+                  if (!labourGroups[labour.id]) {
+                    labourGroups[labour.id] = {
+                      labour: labour,
+                      works: [],
+                      totalAmount: 0
+                    };
                   }
+                  labourGroups[labour.id].works.push(workDescription);
+                  labourGroups[labour.id].totalAmount += amount;
                 }
               }
+            }
+          }
+          
+          // Create single ledger entry per vendor
+          for (const vendorId in vendorGroups) {
+            const group = vendorGroups[vendorId];
+            const combinedWork = group.works.join(', ');
+            
+            try {
+              await dbOperations.insert('vendor_ledger_entries', {
+                vendor_id: group.vendor.id,
+                entry_date: date,
+                particulars: combinedWork,
+                category: 'Multiple Works',
+                debit_amount: 0,
+                credit_amount: group.totalAmount,
+                vehicle_no: vehicleNo,
+                owner_name: jobCtx.partyName || '',
+                reference_type: 'job_sheet',
+                reference_no: vehicleNo,
+                entry_type: 'job_sheet'
+              });
+              
+              // Update vendor balance
+              const entries = await dbOperations.getByIndex('vendor_ledger_entries', 'vendor_id', group.vendor.id);
+              const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+              await dbOperations.update('vendors', group.vendor.id, {
+                current_balance: (group.vendor.opening_balance || 0) + balance
+              });
+            } catch (err) {
+              console.error('Error adding vendor ledger entry:', err);
+            }
+          }
+          
+          // Create single ledger entry per labour
+          for (const labourId in labourGroups) {
+            const group = labourGroups[labourId];
+            const combinedWork = group.works.join(', ');
+            
+            try {
+              await dbOperations.insert('labour_ledger_entries', {
+                labour_id: group.labour.id,
+                entry_date: date,
+                particulars: combinedWork,
+                category: 'Multiple Works',
+                debit_amount: 0,
+                credit_amount: group.totalAmount,
+                vehicle_no: vehicleNo,
+                owner_name: jobCtx.partyName || '',
+                reference_type: 'job_sheet',
+                reference_no: vehicleNo,
+                entry_type: 'job_sheet'
+              });
+              
+              // Update labour balance
+              const entries = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', group.labour.id);
+              const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+              await dbOperations.update('labour', group.labour.id, {
+                current_balance: (group.labour.opening_balance || 0) + balance
+              });
+            } catch (err) {
+              console.error('Error adding labour ledger entry:', err);
             }
           }
         } catch (err) {
           console.error('Error in addLedgerEntries:', err);
           // Don't throw - allow job sheet to save even if ledger entries fail
+        }
+      };
+
+      // Helper function to delete old ledger entries for this job sheet
+      const deleteOldLedgerEntries = async () => {
+        try {
+          // Delete vendor ledger entries
+          const vendorEntries = await dbOperations.getAll('vendor_ledger_entries');
+          const oldVendorEntries = vendorEntries.filter(
+            entry => entry.reference_type === 'job_sheet' && entry.reference_no === vehicleNo && entry.entry_date === date
+          );
+          for (const entry of oldVendorEntries) {
+            await dbOperations.delete('vendor_ledger_entries', entry.id);
+          }
+          
+          // Delete labour ledger entries
+          const labourEntries = await dbOperations.getAll('labour_ledger_entries');
+          const oldLabourEntries = labourEntries.filter(
+            entry => entry.reference_type === 'job_sheet' && entry.reference_no === vehicleNo && entry.entry_date === date
+          );
+          for (const entry of oldLabourEntries) {
+            await dbOperations.delete('labour_ledger_entries', entry.id);
+          }
+        } catch (err) {
+          console.error('Error deleting old ledger entries:', err);
         }
       };
 
@@ -246,6 +303,7 @@ const JobSheetStep = () => {
         );
         
         if (confirmed) {
+          await deleteOldLedgerEntries(); // Delete old entries first
           await dbOperations.update('jobsheets', existingRecord.id, jobSheetData);
           await addLedgerEntries();
           toast.success('Job Sheet updated successfully!');

@@ -10,6 +10,8 @@ import jsPDF from 'jspdf';
 import { dbOperations } from '@/lib/db';
 
 const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
+  const isEditMode = !!entry; // Check if editing existing entry
+  
   const [formData, setFormData] = useState(
     entry || {
       entry_date: new Date().toISOString().split('T')[0],
@@ -51,6 +53,7 @@ const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
           onChange={handleChange}
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
           required
+          disabled={isEditMode}
         />
       </div>
 
@@ -66,6 +69,7 @@ const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
           placeholder="e.g., Opening Balance, Payment Adjustment"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
           required
+          disabled={isEditMode}
         />
       </div>
 
@@ -80,6 +84,7 @@ const ManualEntryForm = ({ vendorId, entry, onSave, onCancel }) => {
           onChange={handleChange}
           placeholder="e.g., Painter, Mechanic, Body Builder"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          disabled={isEditMode}
         />
       </div>
 
@@ -222,9 +227,6 @@ const VendorLedgerTab = () => {
 
   const handleEditEntry = async (entryData) => {
     try {
-      if (editingEntry.entry_type && editingEntry.entry_type !== 'manual') {
-        throw new Error('Only manual entries can be edited.');
-      }
       await dbOperations.update('vendor_ledger_entries', editingEntry.id, entryData);
 
       toast.success('Entry updated successfully!');
@@ -233,15 +235,12 @@ const VendorLedgerTab = () => {
       fetchLedgerEntries();
     } catch (error) {
       console.error('Error updating entry:', error);
-      toast.error('Failed to update entry. Only manual entries can be edited.');
+      toast.error('Failed to update entry.');
     }
   };
 
   const handleDeleteEntry = async () => {
     try {
-      if (entryToDelete.entry_type && entryToDelete.entry_type !== 'manual') {
-        throw new Error('Only manual entries can be deleted.');
-      }
       await dbOperations.delete('vendor_ledger_entries', entryToDelete.id);
 
       toast.success('Entry deleted successfully!');
@@ -250,24 +249,16 @@ const VendorLedgerTab = () => {
       fetchLedgerEntries();
     } catch (error) {
       console.error('Error deleting entry:', error);
-      toast.error('Failed to delete entry. Only manual entries can be deleted.');
+      toast.error('Failed to delete entry.');
     }
   };
 
   const openEditModal = (entry) => {
-    if (entry.entry_type !== 'manual') {
-      toast.error('Only manual entries can be edited');
-      return;
-    }
     setEditingEntry(entry);
     setIsModalOpen(true);
   };
 
   const openDeleteModal = (entry) => {
-    if (entry.entry_type !== 'manual') {
-      toast.error('Only manual entries can be deleted');
-      return;
-    }
     setEntryToDelete(entry);
     setIsDeleteModalOpen(true);
   };
@@ -587,24 +578,24 @@ const VendorLedgerTab = () => {
                               : '-'}
                           </td>
                           <td className="p-3 text-right">
-                            {entry.entry_type === 'manual' && (
-                              <div className="flex justify-end items-center space-x-2">
-                                <Button
-                                  variant="ghost"
-                                  className="p-2 h-auto"
-                                  onClick={() => openEditModal(entry)}
-                                >
-                                  <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  className="p-2 h-auto"
-                                  onClick={() => openDeleteModal(entry)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
-                                </Button>
-                              </div>
-                            )}
+                            <div className="flex justify-end items-center space-x-2">
+                              <Button
+                                variant="ghost"
+                                className="p-2 h-auto"
+                                onClick={() => openEditModal(entry)}
+                                title="View/Edit Entry"
+                              >
+                                <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                className="p-2 h-auto"
+                                onClick={() => openDeleteModal(entry)}
+                                title="Delete Entry"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))
