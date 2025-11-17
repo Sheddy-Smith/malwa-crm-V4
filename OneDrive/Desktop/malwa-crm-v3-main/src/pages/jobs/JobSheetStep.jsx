@@ -211,6 +211,7 @@ const JobSheetStep = () => {
             
             try {
               await dbOperations.insert('vendor_ledger_entries', {
+                id: `${group.vendor.id}_${vehicleNo}_${date}_${Date.now()}`,
                 vendor_id: group.vendor.id,
                 entry_date: date,
                 particulars: combinedWork,
@@ -242,6 +243,7 @@ const JobSheetStep = () => {
             
             try {
               await dbOperations.insert('labour_ledger_entries', {
+                id: `${group.labour.id}_${vehicleNo}_${date}_${Date.now()}`,
                 labour_id: group.labour.id,
                 entry_date: date,
                 particulars: combinedWork,
