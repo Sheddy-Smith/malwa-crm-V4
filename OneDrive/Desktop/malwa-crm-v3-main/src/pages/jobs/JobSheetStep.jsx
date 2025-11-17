@@ -159,6 +159,86 @@ const JobSheetStep = () => {
         status: jobStatus
       };
 
+      // Add ledger entries for vendors and labour
+      const addLedgerEntries = async () => {
+        try {
+          // Combine inspection items and extra work
+          const allItems = [...estimateItems, ...extraWork];
+          
+          for (const item of allItems) {
+            if (item.workOrder && item.assignedTo && calculateTotal(item) > 0) {
+              const amount = calculateTotal(item);
+              const workDescription = item.item || 'Work';
+              
+              if (item.workOrder === 'Vendor') {
+                // Find vendor by name
+                const vendor = vendors.find(v => v.name === item.assignedTo);
+                if (vendor) {
+                  try {
+                    // Add vendor ledger entry
+                    await dbOperations.insert('vendor_ledger_entries', {
+                      vendor_id: vendor.id,
+                      entry_date: date,
+                      particulars: workDescription,
+                      category: item.category || '',
+                      debit_amount: amount,
+                      credit_amount: 0,
+                      vehicle_no: vehicleNo,
+                      owner_name: jobCtx.partyName || '',
+                      reference_type: 'job_sheet',
+                      reference_no: vehicleNo,
+                      entry_type: 'job_sheet'
+                    });
+                    
+                    // Update vendor balance
+                    const entries = await dbOperations.getByIndex('vendor_ledger_entries', 'vendor_id', vendor.id);
+                    const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+                    await dbOperations.update('vendors', vendor.id, {
+                      current_balance: (vendor.opening_balance || 0) + balance
+                    });
+                  } catch (err) {
+                    console.error('Error adding vendor ledger entry:', err);
+                  }
+                }
+              } else if (item.workOrder === 'Labour') {
+                // Find labour by name
+                const labour = labourers.find(l => l.name === item.assignedTo);
+                if (labour) {
+                  try {
+                    // Add labour ledger entry
+                    await dbOperations.insert('labour_ledger_entries', {
+                      labour_id: labour.id,
+                      entry_date: date,
+                      particulars: workDescription,
+                      category: item.category || '',
+                      debit_amount: amount,
+                      credit_amount: 0,
+                      vehicle_no: vehicleNo,
+                      owner_name: jobCtx.partyName || '',
+                      reference_type: 'job_sheet',
+                      reference_no: vehicleNo,
+                      entry_type: 'job_sheet'
+                    });
+                    
+                    // Update labour balance
+                    const entries = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', labour.id);
+                    const balance = entries.reduce((sum, entry) => sum + (entry.debit_amount || 0) - (entry.credit_amount || 0), 0);
+                    await dbOperations.update('labour', labour.id, {
+                      current_balance: (labour.opening_balance || 0) + balance
+                    });
+                  } catch (err) {
+                    console.error('Error adding labour ledger entry:', err);
+                  }
+                }
+              }
+            }
+          }
+        } catch (err) {
+          console.error('Error in addLedgerEntries:', err);
+          // Don't throw - allow job sheet to save even if ledger entries fail
+        }
+      };
+
       if (existingRecord) {
         // Show confirmation for update
         const confirmed = window.confirm(
@@ -167,18 +247,20 @@ const JobSheetStep = () => {
         
         if (confirmed) {
           await dbOperations.update('jobsheets', existingRecord.id, jobSheetData);
+          await addLedgerEntries();
           toast.success('Job Sheet updated successfully!');
           await loadRecords();
         }
       } else {
         // Create new record
         await dbOperations.insert('jobsheets', jobSheetData);
+        await addLedgerEntries();
         toast.success('Job Sheet saved successfully!');
         await loadRecords();
       }
     } catch (error) {
-      console.error(error);
-      toast.error('Failed to save job sheet');
+      console.error('Error saving job sheet:', error);
+      toast.error('Failed to save job sheet: ' + error.message);
     }
   };
 

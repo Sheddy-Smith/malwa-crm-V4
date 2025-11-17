@@ -1,5 +1,5 @@
 const DB_NAME = 'malwa_erp_db';
-const DB_VERSION = 7; // v7: Supplier/Vendor separation, new catalogs, service orders/invoices, indexes
+const DB_VERSION = 8; // v8: Added vendor_ledger_entries and labour_ledger_entries indexes
 
 let db = null;
 
@@ -90,14 +90,42 @@ export const initDB = () => {
     request.onupgradeneeded = (event) => {
       const database = event.target.result;
       const upgradeTxn = event.target.transaction;
+      const oldVersion = event.oldVersion;
 
       Object.entries(STORES).forEach(([storeName, keyPath]) => {
+        let objectStore;
+        
         if (!database.objectStoreNames.contains(storeName)) {
-          const objectStore = database.createObjectStore(storeName, {
+          objectStore = database.createObjectStore(storeName, {
             keyPath,
             autoIncrement: false
           });
+        } else {
+          // For existing stores, get them from transaction
+          objectStore = upgradeTxn.objectStore(storeName);
+        }
 
+        // Add indexes for vendor_ledger_entries and labour_ledger_entries if upgrading from v7
+        if (oldVersion < 8) {
+          if (storeName === 'vendor_ledger_entries') {
+            if (!objectStore.indexNames.contains('vendor_id')) {
+              objectStore.createIndex('vendor_id', 'vendor_id', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('entry_date')) {
+              objectStore.createIndex('entry_date', 'entry_date', { unique: false });
+            }
+          } else if (storeName === 'labour_ledger_entries') {
+            if (!objectStore.indexNames.contains('labour_id')) {
+              objectStore.createIndex('labour_id', 'labour_id', { unique: false });
+            }
+            if (!objectStore.indexNames.contains('entry_date')) {
+              objectStore.createIndex('entry_date', 'entry_date', { unique: false });
+            }
+          }
+        }
+
+        // Create indexes for new stores
+        if (!database.objectStoreNames.contains(storeName)) {
           if (storeName === 'customers') {
             objectStore.createIndex('phone', 'phone', { unique: false });
             objectStore.createIndex('email', 'email', { unique: false });
@@ -118,11 +146,17 @@ export const initDB = () => {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('name', 'name', { unique: false });
             objectStore.createIndex('serviceType', 'serviceType', { unique: false });
+          } else if (storeName === 'vendor_ledger_entries') {
+            objectStore.createIndex('vendor_id', 'vendor_id', { unique: false });
+            objectStore.createIndex('entry_date', 'entry_date', { unique: false });
           } else if (storeName === 'labour') {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('technicianId', 'technicianId', { unique: false });
             objectStore.createIndex('employeeId', 'employeeId', { unique: false });
             objectStore.createIndex('vendorId', 'vendorId', { unique: false });
+          } else if (storeName === 'labour_ledger_entries') {
+            objectStore.createIndex('labour_id', 'labour_id', { unique: false });
+            objectStore.createIndex('entry_date', 'entry_date', { unique: false });
           } else if (storeName === 'suppliers') {
             objectStore.createIndex('code', 'code', { unique: true });
             objectStore.createIndex('name', 'name', { unique: false });

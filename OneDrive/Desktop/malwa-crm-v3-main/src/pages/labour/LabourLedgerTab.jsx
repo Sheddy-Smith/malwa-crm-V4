@@ -169,7 +169,16 @@ const LabourLedgerTab = () => {
   const fetchLedgerEntries = async () => {
     setLoading(true);
     try {
-      let data = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', selectedLabourId);
+      let data;
+      try {
+        data = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', selectedLabourId);
+      } catch (indexError) {
+        console.warn('Index not available, using fallback:', indexError);
+        // Fallback: get all entries and filter manually
+        const allEntries = await dbOperations.getAll('labour_ledger_entries');
+        data = allEntries.filter(entry => entry.labour_id === selectedLabourId);
+      }
+      
       data = Array.isArray(data) ? data : [];
 
       // Filter by date range if provided
@@ -190,7 +199,7 @@ const LabourLedgerTab = () => {
       setLedgerEntries(filteredData);
     } catch (error) {
       console.error('Error fetching ledger entries:', error);
-      toast.error('Failed to load ledger entries');
+      toast.error('Failed to load ledger entries: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -540,12 +549,11 @@ const LabourLedgerTab = () => {
                   <thead className="bg-gray-50 dark:bg-gray-700 text-left">
                     <tr>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Date</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Particulars</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Skill</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Ref No</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Debit</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Vehicle No</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Owner Name</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Work</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Credit</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Balance</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Debit</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -559,19 +567,14 @@ const LabourLedgerTab = () => {
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
                             {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                           </td>
-                          <td className="p-3 text-gray-900 dark:text-dark-text">{entry.particulars}</td>
-                          <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {entry.skill_type || '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text font-medium">
+                            {entry.vehicle_no || '-'}
                           </td>
-                          <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {entry.reference_no || '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text">
+                            {entry.owner_name || '-'}
                           </td>
-                          <td className="p-3 text-right text-red-600 dark:text-red-400 font-medium">
-                            {parseFloat(entry.debit_amount || 0) > 0
-                              ? `₹${parseFloat(entry.debit_amount).toLocaleString('en-IN', {
-                                  minimumFractionDigits: 2,
-                                })}`
-                              : '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text">
+                            {entry.particulars ? entry.particulars.replace(/ - Vehicle:.*$/, '').trim() : '-'}
                           </td>
                           <td className="p-3 text-right text-green-600 dark:text-green-400 font-medium">
                             {parseFloat(entry.credit_amount || 0) > 0
@@ -580,8 +583,12 @@ const LabourLedgerTab = () => {
                                 })}`
                               : '-'}
                           </td>
-                          <td className="p-3 text-right font-semibold text-gray-900 dark:text-dark-text">
-                            ₹{Math.abs(entry.running_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          <td className="p-3 text-right text-red-600 dark:text-red-400 font-medium">
+                            {parseFloat(entry.debit_amount || 0) > 0
+                              ? `₹${parseFloat(entry.debit_amount).toLocaleString('en-IN', {
+                                  minimumFractionDigits: 2,
+                                })}`
+                              : '-'}
                           </td>
                           <td className="p-3 text-right">
                             {entry.entry_type === 'manual' && (
@@ -607,7 +614,7 @@ const LabourLedgerTab = () => {
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="8" className="text-center p-12">
+                        <td colSpan="7" className="text-center p-12">
                           <p className="text-gray-500 dark:text-dark-text-secondary">
                             No entries found for the selected filters
                           </p>
