@@ -1,5 +1,5 @@
 const DB_NAME = 'malwa_erp_db';
-const DB_VERSION = 7; // v7: Supplier/Vendor separation, new catalogs, service orders/invoices, indexes
+const DB_VERSION = 8; // v8: Added purchase_challan_items store
 
 let db = null;
 
@@ -33,6 +33,7 @@ const STORES = {
   vouchers: 'id',
   gst_ledger: 'id',
   purchase_challans: 'id',
+  purchase_challan_items: 'id',
   sell_challans: 'id',
   branches: 'id',
   profiles: 'id',
@@ -201,6 +202,9 @@ export const initDB = () => {
             objectStore.createIndex('purchaseId', 'purchaseId', { unique: false });
             objectStore.createIndex('supplierId', 'supplierId', { unique: false });
             objectStore.createIndex('date', 'date', { unique: false });
+          } else if (storeName === 'purchase_challan_items') {
+            objectStore.createIndex('challan_id', 'challan_id', { unique: false });
+            objectStore.createIndex('category_id', 'category_id', { unique: false });
           } else if (storeName === 'payments') {
             objectStore.createIndex('invoiceId', 'invoiceId', { unique: false });
             objectStore.createIndex('payeeId', 'payeeId', { unique: false });

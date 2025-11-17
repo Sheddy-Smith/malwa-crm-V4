@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { Save, Printer, Trash2 } from "lucide-react";
+import { Save, Printer, Trash2, Plus } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";

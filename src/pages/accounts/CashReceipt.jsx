@@ -3,19 +3,18 @@ import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
 import { toast } from 'sonner';
-import { PlusCircle, Trash2, Edit, Search } from 'lucide-react';
+import { PlusCircle, Trash2, Edit } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 
-const VoucherForm = ({ voucher, onSave, onCancel }) => {
+const CashReceiptForm = ({ receipt, onSave, onCancel }) => {
   const [formData, setFormData] = useState(
-    voucher || {
-      voucher_date: new Date().toISOString().split('T')[0],
-      voucher_no: '',
-      payee_type: 'vendor', // vendor, labour, supplier, other
-      payee_id: '',
-      payee_name: '',
+    receipt || {
+      receipt_date: new Date().toISOString().split('T')[0],
+      receipt_no: '',
+      customer_id: '',
+      received_from: '',
       amount: 0,
-      payment_mode: 'cash', // cash, bank, cheque, upi
+      payment_mode: 'cash',
       cheque_no: '',
       bank_name: '',
       particulars: '',
@@ -23,26 +22,18 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
     }
   );
 
-  const [vendors, setVendors] = useState([]);
-  const [labours, setLabours] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
+  const [customers, setCustomers] = useState([]);
 
   useEffect(() => {
-    loadPayees();
+    loadCustomers();
   }, []);
 
-  const loadPayees = async () => {
+  const loadCustomers = async () => {
     try {
-      const [vendorData, labourData, supplierData] = await Promise.all([
-        dbOperations.getAll('vendors'),
-        dbOperations.getAll('labour'),
-        dbOperations.getAll('suppliers'),
-      ]);
-      setVendors(vendorData || []);
-      setLabours(labourData || []);
-      setSuppliers(supplierData || []);
+      const data = await dbOperations.getAll('customers');
+      setCustomers(data || []);
     } catch (error) {
-      console.error('Error loading payees:', error);
+      console.error('Error loading customers:', error);
     }
   };
 
@@ -50,59 +41,24 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
 
-    // Auto-fill payee name when payee is selected
-    if (name === 'payee_id' && formData.payee_type !== 'other') {
-      let selectedPayee;
-      if (formData.payee_type === 'vendor') {
-        selectedPayee = vendors.find(v => v.id === value);
-      } else if (formData.payee_type === 'labour') {
-        selectedPayee = labours.find(l => l.id === value);
-      } else if (formData.payee_type === 'supplier') {
-        selectedPayee = suppliers.find(s => s.id === value);
+    // Auto-fill customer name when customer is selected
+    if (name === 'customer_id') {
+      const selectedCustomer = customers.find(c => c.id === value);
+      if (selectedCustomer) {
+        setFormData(prev => ({ ...prev, received_from: selectedCustomer.name }));
       }
-      if (selectedPayee) {
-        setFormData(prev => ({ ...prev, payee_name: selectedPayee.name }));
-      }
-    }
-
-    // Reset payee selection when type changes
-    if (name === 'payee_type') {
-      setFormData(prev => ({ ...prev, payee_id: '', payee_name: '' }));
     }
   };
 
   const handleSubmit = (e) => {
     e.preventDefault();
     
-    if (!formData.voucher_date || !formData.amount || parseFloat(formData.amount) <= 0) {
+    if (!formData.receipt_date || !formData.received_from || !formData.amount || parseFloat(formData.amount) <= 0) {
       toast.error('Please fill all required fields with valid values');
       return;
     }
 
-    if (formData.payee_type !== 'other' && !formData.payee_id) {
-      toast.error('Please select a payee');
-      return;
-    }
-
-    if (formData.payee_type === 'other' && !formData.payee_name) {
-      toast.error('Please enter payee name');
-      return;
-    }
-
     onSave(formData);
-  };
-
-  const getPayeeOptions = () => {
-    switch (formData.payee_type) {
-      case 'vendor':
-        return vendors;
-      case 'labour':
-        return labours;
-      case 'supplier':
-        return suppliers;
-      default:
-        return [];
-    }
   };
 
   return (
@@ -110,12 +66,12 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
       <div className="grid grid-cols-2 gap-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Voucher Date *
+            Receipt Date *
           </label>
           <input
             type="date"
-            name="voucher_date"
-            value={formData.voucher_date}
+            name="receipt_date"
+            value={formData.receipt_date}
             onChange={handleChange}
             className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
             required
@@ -124,12 +80,12 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Voucher No
+            Receipt No
           </label>
           <input
             type="text"
-            name="voucher_no"
-            value={formData.voucher_no}
+            name="receipt_no"
+            value={formData.receipt_no}
             onChange={handleChange}
             placeholder="Auto-generated"
             disabled
@@ -139,58 +95,38 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Payee Type *
+            Customer *
           </label>
           <select
-            name="payee_type"
-            value={formData.payee_type}
+            name="customer_id"
+            value={formData.customer_id}
             onChange={handleChange}
             className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
             required
           >
-            <option value="vendor">Vendor (Service Provider)</option>
-            <option value="labour">Labour (Worker)</option>
-            <option value="supplier">Supplier (Material)</option>
-            <option value="other">Other</option>
+            <option value="">Select Customer...</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name} {customer.phone ? `(${customer.phone})` : ''}
+              </option>
+            ))}
           </select>
         </div>
 
-        {formData.payee_type !== 'other' ? (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Select {formData.payee_type.charAt(0).toUpperCase() + formData.payee_type.slice(1)} *
-            </label>
-            <select
-              name="payee_id"
-              value={formData.payee_id}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
-              required
-            >
-              <option value="">Select...</option>
-              {getPayeeOptions().map((payee) => (
-                <option key={payee.id} value={payee.id}>
-                  {payee.name} {payee.code ? `(${payee.code})` : ''}
-                </option>
-              ))}
-            </select>
-          </div>
-        ) : (
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Payee Name *
-            </label>
-            <input
-              type="text"
-              name="payee_name"
-              value={formData.payee_name}
-              onChange={handleChange}
-              placeholder="Enter payee name"
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
-              required
-            />
-          </div>
-        )}
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Received From
+          </label>
+          <input
+            type="text"
+            name="received_from"
+            value={formData.received_from}
+            onChange={handleChange}
+            placeholder="Auto-filled from customer"
+            disabled
+            className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-dark-text cursor-not-allowed"
+          />
+        </div>
 
         <div>
           <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
@@ -265,7 +201,7 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
           name="particulars"
           value={formData.particulars}
           onChange={handleChange}
-          placeholder="e.g., Payment for service, Material payment"
+          placeholder="e.g., Payment received for invoice, Advance payment"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
           required
         />
@@ -289,140 +225,108 @@ const VoucherForm = ({ voucher, onSave, onCancel }) => {
           Cancel
         </Button>
         <Button type="submit">
-          {voucher ? 'Update Voucher' : 'Save Voucher'}
+          {receipt ? 'Update Receipt' : 'Save Receipt'}
         </Button>
       </div>
     </form>
   );
 };
 
-const Voucher = () => {
-  const [vouchers, setVouchers] = useState([]);
+const CashReceipt = () => {
+  const [receipts, setReceipts] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingVoucher, setEditingVoucher] = useState(null);
+  const [editingReceipt, setEditingReceipt] = useState(null);
   const [searchFilters, setSearchFilters] = useState({
     date_from: '',
     date_to: '',
-    payee_type: '',
-    payee_name: '',
+    received_from: '',
   });
 
   useEffect(() => {
-    loadVouchers();
+    loadReceipts();
   }, []);
 
-  const loadVouchers = async () => {
+  const loadReceipts = async () => {
     setLoading(true);
     try {
-      const data = await dbOperations.getAll('vouchers');
-      const sorted = (data || []).sort((a, b) => new Date(b.voucher_date) - new Date(a.voucher_date));
-      setVouchers(sorted);
+      const data = await dbOperations.getAll('receipts');
+      const sorted = (data || []).sort((a, b) => new Date(b.receipt_date) - new Date(a.receipt_date));
+      setReceipts(sorted);
     } catch (error) {
-      console.error('Error loading vouchers:', error);
-      toast.error('Failed to load vouchers');
+      console.error('Error loading receipts:', error);
+      toast.error('Failed to load receipts');
     } finally {
       setLoading(false);
     }
   };
 
-  const generateVoucherNo = async () => {
+  const generateReceiptNo = async () => {
     const date = new Date();
     const year = date.getFullYear().toString().substr(-2);
     const month = (date.getMonth() + 1).toString().padStart(2, '0');
-    const existing = vouchers.filter(v => v.voucher_no?.startsWith(`V${year}${month}`));
+    const existing = receipts.filter(r => r.receipt_no?.startsWith(`CR${year}${month}`));
     const sequence = existing.length + 1;
-    return `V${year}${month}${sequence.toString().padStart(4, '0')}`;
+    return `CR${year}${month}${sequence.toString().padStart(4, '0')}`;
   };
 
-  const handleSaveVoucher = async (voucherData) => {
+  const handleSaveReceipt = async (receiptData) => {
     try {
-      const voucherNo = voucherData.voucher_no || await generateVoucherNo();
+      const receiptNo = receiptData.receipt_no || await generateReceiptNo();
 
-      const voucherRecord = {
-        ...voucherData,
-        voucher_no: voucherNo,
-        amount: parseFloat(voucherData.amount),
+      const receiptRecord = {
+        ...receiptData,
+        receipt_no: receiptNo,
+        amount: parseFloat(receiptData.amount),
         created_at: new Date().toISOString(),
-        id: editingVoucher?.id || `v_${Date.now()}`,
+        id: editingReceipt?.id || `cr_${Date.now()}`,
       };
 
-      if (editingVoucher) {
-        await dbOperations.update('vouchers', editingVoucher.id, voucherRecord);
-        toast.success('Voucher updated successfully');
+      if (editingReceipt) {
+        await dbOperations.update('receipts', editingReceipt.id, receiptRecord);
+        toast.success('Receipt updated successfully');
       } else {
-        await dbOperations.insert('vouchers', voucherRecord);
+        await dbOperations.insert('receipts', receiptRecord);
 
-        // Create ledger entry based on payee type
-        if (voucherData.payee_type === 'vendor' && voucherData.payee_id) {
-          await dbOperations.insert('vendor_ledger_entries', {
-            id: `vle_${Date.now()}`,
-            vendor_id: voucherData.payee_id,
-            entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
-            category: 'Payment',
-            reference_no: voucherNo,
-            reference_type: 'voucher',
-            reference_id: voucherRecord.id,
+        // Create customer ledger entry (credit - reduces outstanding)
+        if (receiptData.customer_id) {
+          await dbOperations.insert('customer_ledger_entries', {
+            id: `cle_${Date.now()}`,
+            customer_id: receiptData.customer_id,
+            entry_date: receiptData.receipt_date,
+            particulars: receiptData.particulars || 'Cash Receipt',
+            reference_no: receiptNo,
+            reference_type: 'cash_receipt',
+            reference_id: receiptRecord.id,
             debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
-            entry_type: 'payment',
-            created_at: new Date().toISOString(),
-          });
-        } else if (voucherData.payee_type === 'labour' && voucherData.payee_id) {
-          await dbOperations.insert('labour_ledger_entries', {
-            id: `lle_${Date.now()}`,
-            labour_id: voucherData.payee_id,
-            entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
-            skill_type: 'Payment',
-            reference_no: voucherNo,
-            reference_type: 'voucher',
-            reference_id: voucherRecord.id,
-            debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
-            entry_type: 'payment',
-            created_at: new Date().toISOString(),
-          });
-        } else if (voucherData.payee_type === 'supplier' && voucherData.payee_id) {
-          await dbOperations.insert('supplier_ledger_entries', {
-            id: `sle_${Date.now()}`,
-            supplier_id: voucherData.payee_id,
-            entry_date: voucherData.voucher_date,
-            particulars: voucherData.particulars,
-            category: 'Payment',
-            reference_no: voucherNo,
-            reference_type: 'voucher',
-            reference_id: voucherRecord.id,
-            debit_amount: 0,
-            credit_amount: parseFloat(voucherData.amount),
-            entry_type: 'payment',
+            credit_amount: parseFloat(receiptData.amount),
+            entry_type: 'receipt',
             created_at: new Date().toISOString(),
           });
         }
 
-        toast.success('Voucher saved successfully');
+        toast.success('Receipt saved successfully');
       }
 
       setIsModalOpen(false);
-      setEditingVoucher(null);
-      loadVouchers();
+      setEditingReceipt(null);
+      loadReceipts();
     } catch (error) {
-      console.error('Error saving voucher:', error);
-      toast.error('Failed to save voucher');
+      console.error('Error saving receipt:', error);
+      toast.error('Failed to save receipt');
     }
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this voucher?')) return;
+    if (!confirm('Are you sure you want to delete this receipt?')) return;
 
     try {
-      await dbOperations.delete('vouchers', id);
-      toast.success('Voucher deleted successfully');
-      loadVouchers();
+      await dbOperations.delete('receipts', id);
+      toast.success('Receipt deleted successfully');
+      loadReceipts();
     } catch (error) {
-      console.error('Error deleting voucher:', error);
-      toast.error('Failed to delete voucher');
+      console.error('Error deleting receipt:', error);
+      toast.error('Failed to delete receipt');
     }
   };
 
@@ -435,51 +339,47 @@ const Voucher = () => {
     setSearchFilters({
       date_from: '',
       date_to: '',
-      payee_type: '',
-      payee_name: '',
+      received_from: '',
     });
   };
 
-  const filteredVouchers = vouchers.filter((voucher) => {
-    if (searchFilters.date_from && voucher.voucher_date < searchFilters.date_from) {
+  const filteredReceipts = receipts.filter((receipt) => {
+    if (searchFilters.date_from && receipt.receipt_date < searchFilters.date_from) {
       return false;
     }
-    if (searchFilters.date_to && voucher.voucher_date > searchFilters.date_to) {
+    if (searchFilters.date_to && receipt.receipt_date > searchFilters.date_to) {
       return false;
     }
-    if (searchFilters.payee_type && voucher.payee_type !== searchFilters.payee_type) {
-      return false;
-    }
-    if (searchFilters.payee_name && !voucher.payee_name?.toLowerCase().includes(searchFilters.payee_name.toLowerCase())) {
+    if (searchFilters.received_from && !receipt.received_from?.toLowerCase().includes(searchFilters.received_from.toLowerCase())) {
       return false;
     }
     return true;
   });
 
-  const totalAmount = filteredVouchers.reduce((sum, v) => sum + parseFloat(v.amount || 0), 0);
+  const totalAmount = filteredReceipts.reduce((sum, r) => sum + parseFloat(r.amount || 0), 0);
 
   return (
     <div className="p-6">
       <Card>
         <div className="flex justify-between items-center mb-6">
           <h2 className="text-2xl font-bold text-gray-900 dark:text-dark-text">
-            Payment Vouchers
+            Cash Receipts
           </h2>
           <Button
             onClick={() => {
-              setEditingVoucher(null);
+              setEditingReceipt(null);
               setIsModalOpen(true);
             }}
             variant="primary"
           >
             <PlusCircle className="w-5 h-5 mr-2" />
-            Add Voucher
+            Add Cash Receipt
           </Button>
         </div>
 
         {/* Search Filters */}
         <div className="mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <div className="grid grid-cols-4 gap-4">
+          <div className="grid grid-cols-3 gap-4">
             <div>
               <input
                 type="date"
@@ -501,26 +401,12 @@ const Voucher = () => {
               />
             </div>
             <div>
-              <select
-                name="payee_type"
-                value={searchFilters.payee_type}
-                onChange={handleSearchChange}
-                className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
-              >
-                <option value="">All Types</option>
-                <option value="vendor">Vendor</option>
-                <option value="labour">Labour</option>
-                <option value="supplier">Supplier</option>
-                <option value="other">Other</option>
-              </select>
-            </div>
-            <div>
               <input
                 type="text"
-                name="payee_name"
-                value={searchFilters.payee_name}
+                name="received_from"
+                value={searchFilters.received_from}
                 onChange={handleSearchChange}
-                placeholder="Search by payee name"
+                placeholder="Search by received from"
                 className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text"
               />
             </div>
@@ -533,11 +419,11 @@ const Voucher = () => {
         </div>
 
         {/* Summary */}
-        {filteredVouchers.length > 0 && (
-          <div className="mb-4 p-4 bg-blue-50 dark:bg-blue-900/20 rounded-lg">
+        {filteredReceipts.length > 0 && (
+          <div className="mb-4 p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
             <div className="flex justify-between items-center">
               <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
-                Total Vouchers: {filteredVouchers.length}
+                Total Receipts: {filteredReceipts.length}
               </span>
               <span className="text-lg font-bold text-gray-900 dark:text-white">
                 Total Amount: ₹{totalAmount.toFixed(2)}
@@ -546,16 +432,16 @@ const Voucher = () => {
           </div>
         )}
 
-        {/* Vouchers Table */}
+        {/* Receipts Table */}
         {loading ? (
           <div className="text-center py-12">
             <p className="text-gray-500 dark:text-gray-400">Loading...</p>
           </div>
-        ) : filteredVouchers.length === 0 ? (
+        ) : filteredReceipts.length === 0 ? (
           <div className="text-center py-12">
-            <p className="text-gray-500 dark:text-gray-400">No vouchers found</p>
+            <p className="text-gray-500 dark:text-gray-400">No cash receipts found</p>
             <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
-              Add your first payment voucher to get started
+              Add your first cash receipt to get started
             </p>
           </div>
         ) : (
@@ -563,10 +449,9 @@ const Voucher = () => {
             <table className="w-full text-sm border border-gray-200 dark:border-gray-700">
               <thead className="bg-gray-100 dark:bg-gray-800 text-left">
                 <tr>
-                  <th className="p-3 border-b dark:border-gray-700">Voucher No</th>
+                  <th className="p-3 border-b dark:border-gray-700">Receipt No</th>
                   <th className="p-3 border-b dark:border-gray-700">Date</th>
-                  <th className="p-3 border-b dark:border-gray-700">Payee Type</th>
-                  <th className="p-3 border-b dark:border-gray-700">Payee Name</th>
+                  <th className="p-3 border-b dark:border-gray-700">Received From</th>
                   <th className="p-3 border-b dark:border-gray-700">Particulars</th>
                   <th className="p-3 border-b dark:border-gray-700">Payment Mode</th>
                   <th className="p-3 border-b dark:border-gray-700 text-right">Amount</th>
@@ -574,38 +459,28 @@ const Voucher = () => {
                 </tr>
               </thead>
               <tbody>
-                {filteredVouchers.map((voucher) => (
+                {filteredReceipts.map((receipt) => (
                   <tr
-                    key={voucher.id}
+                    key={receipt.id}
                     className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors"
                   >
                     <td className="p-3 font-medium text-gray-900 dark:text-white">
-                      {voucher.voucher_no}
+                      {receipt.receipt_no}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
-                      {new Date(voucher.voucher_date).toLocaleDateString('en-GB')}
-                    </td>
-                    <td className="p-3">
-                      <span className={`px-2 py-1 rounded text-xs font-medium ${
-                        voucher.payee_type === 'vendor' ? 'bg-blue-100 text-blue-800 dark:bg-blue-900/30 dark:text-blue-300' :
-                        voucher.payee_type === 'labour' ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300' :
-                        voucher.payee_type === 'supplier' ? 'bg-purple-100 text-purple-800 dark:bg-purple-900/30 dark:text-purple-300' :
-                        'bg-gray-100 text-gray-800 dark:bg-gray-700 dark:text-gray-300'
-                      }`}>
-                        {voucher.payee_type.toUpperCase()}
-                      </span>
+                      {new Date(receipt.receipt_date).toLocaleDateString('en-GB')}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
-                      {voucher.payee_name}
+                      {receipt.received_from}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300">
-                      {voucher.particulars}
+                      {receipt.particulars}
                     </td>
                     <td className="p-3 text-gray-700 dark:text-gray-300 capitalize">
-                      {voucher.payment_mode}
+                      {receipt.payment_mode}
                     </td>
-                    <td className="p-3 text-right font-medium text-gray-900 dark:text-white">
-                      ₹{parseFloat(voucher.amount).toFixed(2)}
+                    <td className="p-3 text-right font-medium text-green-600 dark:text-green-400">
+                      ₹{parseFloat(receipt.amount).toFixed(2)}
                     </td>
                     <td className="p-3">
                       <div className="flex justify-end gap-2">
@@ -613,7 +488,7 @@ const Voucher = () => {
                           variant="ghost"
                           size="sm"
                           onClick={() => {
-                            setEditingVoucher(voucher);
+                            setEditingReceipt(receipt);
                             setIsModalOpen(true);
                           }}
                         >
@@ -622,7 +497,7 @@ const Voucher = () => {
                         <Button
                           variant="ghost"
                           size="sm"
-                          onClick={() => handleDelete(voucher.id)}
+                          onClick={() => handleDelete(receipt.id)}
                           className="text-red-600 hover:text-red-700 dark:text-red-400"
                         >
                           <Trash2 className="h-4 w-4" />
@@ -637,22 +512,22 @@ const Voucher = () => {
         )}
       </Card>
 
-      {/* Voucher Form Modal */}
+      {/* Receipt Form Modal */}
       <Modal
         isOpen={isModalOpen}
         onClose={() => {
           setIsModalOpen(false);
-          setEditingVoucher(null);
+          setEditingReceipt(null);
         }}
-        title={editingVoucher ? 'Edit Payment Voucher' : 'Add Payment Voucher'}
+        title={editingReceipt ? 'Edit Cash Receipt' : 'Add Cash Receipt'}
         size="xl"
       >
-        <VoucherForm
-          voucher={editingVoucher}
-          onSave={handleSaveVoucher}
+        <CashReceiptForm
+          receipt={editingReceipt}
+          onSave={handleSaveReceipt}
           onCancel={() => {
             setIsModalOpen(false);
-            setEditingVoucher(null);
+            setEditingReceipt(null);
           }}
         />
       </Modal>
@@ -660,4 +535,4 @@ const Voucher = () => {
   );
 };
 
-export default Voucher;
+export default CashReceipt;

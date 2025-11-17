@@ -2,752 +2,720 @@ import { useState, useEffect } from 'react';
 import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
 import Modal from '@/components/ui/Modal';
-import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
-import { PlusCircle, Edit, Trash2, Download, Printer, Search, FileText } from 'lucide-react';
+import { PlusCircle, Trash2, Plus } from 'lucide-react';
 import { dbOperations } from '@/lib/db';
 
-const PurchaseInvoiceForm = ({ invoice, suppliers, inventoryItems, onSave, onCancel }) => {
-  const [formData, setFormData] = useState(
-    invoice || {
-      invoice_no: '',
-      invoice_date: new Date().toISOString().split('T')[0],
-      supplier_id: '',
-      item_id: '',
-      quantity: 0,
-      unit_price: 0,
-      cgst_rate: 0,
-      sgst_rate: 0,
-      igst_rate: 0,
-      vehicle_no: '',
-      source: '',
-      payment_status: 'pending',
-      notes: '',
+const PurchaseInvoiceForm = ({ onClose, onSave }) => {
+  const [suppliers, setSuppliers] = useState([]);
+  const [categories, setCategories] = useState([]);
+  const [formData, setFormData] = useState({
+    invoice_no: '',
+    invoice_date: new Date().toISOString().split('T')[0],
+    supplier_id: '',
+    gst_type: 'igst',
+    igst: 18,
+    cgst: 9,
+    sgst: 9,
+  });
+  const [materials, setMaterials] = useState([
+    {
+      id: Date.now(),
+      material_name: '',
+      category_id: '',
+      quantity: '',
+      unit: 'pcs',
+      rate: '',
     }
-  );
+  ]);
+
+  useEffect(() => {
+    loadSuppliers();
+    loadCategories();
+  }, []);
+
+  const loadSuppliers = async () => {
+    try {
+      const data = await dbOperations.getAll('suppliers');
+      setSuppliers(data || []);
+    } catch (error) {
+      console.error('Error loading suppliers:', error);
+    }
+  };
+
+  const loadCategories = async () => {
+    try {
+      const data = await dbOperations.getAll('inventory_categories');
+      setCategories(data || []);
+    } catch (error) {
+      console.error('Error loading categories:', error);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleSubmit = (e) => {
-    e.preventDefault();
-    if (!formData.supplier_id) {
-      toast.error('Supplier is required.');
-      return;
-    }
-    if (!formData.item_id) {
-      toast.error('Item is required.');
-      return;
-    }
-    if (parseFloat(formData.quantity) <= 0) {
-      toast.error('Quantity must be greater than 0.');
-      return;
-    }
-    if (parseFloat(formData.unit_price) <= 0) {
-      toast.error('Unit price must be greater than 0.');
-      return;
-    }
-    onSave(formData);
+  const handleMaterialChange = (id, field, value) => {
+    setMaterials(materials.map(item => 
+      item.id === id ? { ...item, [field]: value } : item
+    ));
   };
 
-  const selectedItem = inventoryItems.find((item) => item.id === formData.item_id);
-  const subtotal = parseFloat(formData.quantity || 0) * parseFloat(formData.unit_price || 0);
-  const cgstAmount = (subtotal * parseFloat(formData.cgst_rate || 0)) / 100;
-  const sgstAmount = (subtotal * parseFloat(formData.sgst_rate || 0)) / 100;
-  const igstAmount = (subtotal * parseFloat(formData.igst_rate || 0)) / 100;
-  const totalAmount = subtotal + cgstAmount + sgstAmount + igstAmount;
+  const addMaterialRow = () => {
+    setMaterials([...materials, {
+      id: Date.now(),
+      material_name: '',
+      category_id: '',
+      quantity: '',
+      unit: 'pcs',
+      rate: '',
+    }]);
+  };
+
+  const removeMaterialRow = (id) => {
+    if (materials.length > 1) {
+      setMaterials(materials.filter(item => item.id !== id));
+    }
+  };
+
+  const calculateMaterialTotal = (quantity, rate) => {
+    return (parseFloat(quantity) || 0) * (parseFloat(rate) || 0);
+  };
+
+  const calculateTotals = () => {
+    const subtotal = materials.reduce((sum, item) => 
+      sum + calculateMaterialTotal(item.quantity, item.rate), 0
+    );
+
+    let gstAmount = 0;
+    if (formData.gst_type === 'igst') {
+      gstAmount = (subtotal * parseFloat(formData.igst)) / 100;
+    } else {
+      const cgstAmount = (subtotal * parseFloat(formData.cgst)) / 100;
+      const sgstAmount = (subtotal * parseFloat(formData.sgst)) / 100;
+      gstAmount = cgstAmount + sgstAmount;
+    }
+
+    const total = subtotal + gstAmount;
+
+    return {
+      subtotal: subtotal.toFixed(2),
+      gstAmount: gstAmount.toFixed(2),
+      total: total.toFixed(2),
+    };
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+
+    if (!formData.invoice_no) {
+      toast.error('Invoice number is required');
+      return;
+    }
+    if (!formData.supplier_id) {
+      toast.error('Please select a supplier');
+      return;
+    }
+
+    // Validate materials
+    const validMaterials = materials.filter(m => m.material_name && m.category_id && m.quantity && m.rate);
+    if (validMaterials.length === 0) {
+      toast.error('Please add at least one material with all required fields');
+      return;
+    }
+
+    const amounts = calculateTotals();
+    const selectedSupplier = suppliers.find(s => s.id === formData.supplier_id);
+
+    const purchaseData = {
+      ...formData,
+      supplier_name: selectedSupplier?.name || '',
+      materials: validMaterials,
+      subtotal: parseFloat(amounts.subtotal),
+      gst_amount: parseFloat(amounts.gstAmount),
+      total_amount: parseFloat(amounts.total),
+      created_at: new Date().toISOString(),
+    };
+
+    onSave(purchaseData);
+  };
+
+  const totals = calculateTotals();
+  const selectedSupplier = suppliers.find(s => s.id === formData.supplier_id);
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4">
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Invoice No
-          </label>
-          <input
-            type="text"
-            name="invoice_no"
-            value={formData.invoice_no}
-            onChange={handleChange}
-            placeholder="Auto-generated if empty"
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          />
-        </div>
+    <div className="max-h-[85vh] overflow-y-auto">
+      <h2 className="text-xl font-bold text-gray-900 dark:text-dark-text mb-4">
+        Add Purchase Invoice
+      </h2>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Invoice Date *
-          </label>
-          <input
-            type="date"
-            name="invoice_date"
-            value={formData.invoice_date}
-            onChange={handleChange}
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            required
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Supplier *
-        </label>
-        <select
-          name="supplier_id"
-          value={formData.supplier_id}
-          onChange={handleChange}
-          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          required
-        >
-          <option value="">Select Supplier</option>
-          {suppliers.map((supplier) => (
-            <option key={supplier.id} value={supplier.id}>
-              {supplier.name}
-            </option>
-          ))}
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Item *
-        </label>
-        <select
-          name="item_id"
-          value={formData.item_id}
-          onChange={handleChange}
-          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          required
-        >
-          <option value="">Select Item</option>
-          {inventoryItems.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.item_name} ({item.unit})
-            </option>
-          ))}
-        </select>
-        {selectedItem && (
-          <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-            Current Stock: {selectedItem.current_stock} {selectedItem.unit}
-          </p>
-        )}
-      </div>
-
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Quantity * {selectedItem && `(${selectedItem.unit})`}
-          </label>
-          <input
-            type="number"
-            name="quantity"
-            value={formData.quantity}
-            onChange={handleChange}
-            step="0.01"
-            min="0.01"
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            required
-          />
-        </div>
-
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Unit Price * (₹)
-          </label>
-          <input
-            type="number"
-            name="unit_price"
-            value={formData.unit_price}
-            onChange={handleChange}
-            step="0.01"
-            min="0.01"
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            required
-          />
-        </div>
-      </div>
-
-      <div className="border-t border-gray-200 dark:border-gray-700 pt-4">
-        <h4 className="text-sm font-semibold mb-3 text-gray-700 dark:text-dark-text">GST Details</h4>
-        <div className="grid grid-cols-3 gap-4">
+      <form onSubmit={handleSubmit} className="space-y-4">
+        {/* Invoice Header */}
+        <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              CGST (%)
+              Invoice No *
             </label>
             <input
-              type="number"
-              name="cgst_rate"
-              value={formData.cgst_rate}
+              type="text"
+              name="invoice_no"
+              value={formData.invoice_no}
               onChange={handleChange}
-              step="0.01"
-              min="0"
+              placeholder="Enter invoice number"
               className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+              required
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              SGST (%)
+              Date *
             </label>
             <input
-              type="number"
-              name="sgst_rate"
-              value={formData.sgst_rate}
+              type="date"
+              name="invoice_date"
+              value={formData.invoice_date}
               onChange={handleChange}
-              step="0.01"
-              min="0"
               className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+              required
             />
           </div>
-
           <div>
             <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              IGST (%)
+              Supplier *
             </label>
-            <input
-              type="number"
-              name="igst_rate"
-              value={formData.igst_rate}
+            <select
+              name="supplier_id"
+              value={formData.supplier_id}
               onChange={handleChange}
-              step="0.01"
-              min="0"
               className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            />
+              required
+            >
+              <option value="">Select Supplier</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name} {supplier.company && `- ${supplier.company}`}
+                </option>
+              ))}
+            </select>
+            {selectedSupplier?.gstin && (
+              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
+                GSTIN: {selectedSupplier.gstin}
+              </p>
+            )}
           </div>
         </div>
-      </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Vehicle No
-          </label>
-          <input
-            type="text"
-            name="vehicle_no"
-            value={formData.vehicle_no}
-            onChange={handleChange}
-            placeholder="e.g., MP09-AB-1234"
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          />
+        {/* Materials Table */}
+        <div className="border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-100 dark:bg-gray-700">
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '25%'}}>Material Name *</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '20%'}}>Category *</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '12%'}}>Quantity *</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '12%'}}>Unit</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '15%'}}>Rate *</th>
+                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '13%'}}>Total</th>
+                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '3%'}}>Action</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
+                {materials.map((material) => (
+                  <tr key={material.id} className="bg-white dark:bg-dark-card">
+                    <td className="px-3 py-2">
+                      <input
+                        type="text"
+                        value={material.material_name}
+                        onChange={(e) => handleMaterialChange(material.id, 'material_name', e.target.value)}
+                        placeholder="Enter material name"
+                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={material.category_id}
+                        onChange={(e) => handleMaterialChange(material.id, 'category_id', e.target.value)}
+                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
+                      >
+                        <option value="">Select</option>
+                        {categories.map((category) => (
+                          <option key={category.id} value={category.id}>
+                            {category.name}
+                          </option>
+                        ))}
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        value={material.quantity}
+                        onChange={(e) => handleMaterialChange(material.id, 'quantity', e.target.value)}
+                        placeholder="0"
+                        step="0.01"
+                        min="0"
+                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <select
+                        value={material.unit}
+                        onChange={(e) => handleMaterialChange(material.id, 'unit', e.target.value)}
+                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
+                      >
+                        <option value="pcs">Pieces</option>
+                        <option value="kg">Kg</option>
+                        <option value="ltr">Liters</option>
+                        <option value="mtr">Meters</option>
+                        <option value="box">Box</option>
+                      </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      <input
+                        type="number"
+                        value={material.rate}
+                        onChange={(e) => handleMaterialChange(material.id, 'rate', e.target.value)}
+                        placeholder="0.00"
+                        step="0.01"
+                        min="0"
+                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
+                      />
+                    </td>
+                    <td className="px-3 py-2">
+                      <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
+                        ₹{calculateMaterialTotal(material.quantity, material.rate).toFixed(2)}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-center">
+                      <button
+                        type="button"
+                        onClick={() => removeMaterialRow(material.id)}
+                        disabled={materials.length === 1}
+                        className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-30 disabled:cursor-not-allowed"
+                      >
+                        <Trash2 className="w-4 h-4" />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </div>
 
-        <div>
-          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-            Source
-          </label>
-          <input
-            type="text"
-            name="source"
-            value={formData.source}
-            onChange={handleChange}
-            placeholder="e.g., Local Market"
-            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          />
-        </div>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Payment Status
-        </label>
-        <select
-          name="payment_status"
-          value={formData.payment_status}
-          onChange={handleChange}
-          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+        <Button
+          type="button"
+          onClick={addMaterialRow}
+          variant="outline"
+          className="w-full"
         >
-          <option value="pending">Pending</option>
-          <option value="partial">Partial</option>
-          <option value="paid">Paid</option>
-        </select>
-      </div>
-
-      <div>
-        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-          Notes
-        </label>
-        <textarea
-          name="notes"
-          value={formData.notes}
-          onChange={handleChange}
-          rows="2"
-          placeholder="Additional notes..."
-          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-        />
-      </div>
-
-      <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg space-y-2">
-        <div className="flex justify-between text-sm">
-          <span className="text-gray-700 dark:text-dark-text-secondary">Subtotal:</span>
-          <span className="font-medium text-gray-900 dark:text-dark-text">₹{subtotal.toFixed(2)}</span>
-        </div>
-        {cgstAmount > 0 && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-700 dark:text-dark-text-secondary">CGST ({formData.cgst_rate}%):</span>
-            <span className="font-medium text-gray-900 dark:text-dark-text">₹{cgstAmount.toFixed(2)}</span>
-          </div>
-        )}
-        {sgstAmount > 0 && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-700 dark:text-dark-text-secondary">SGST ({formData.sgst_rate}%):</span>
-            <span className="font-medium text-gray-900 dark:text-dark-text">₹{sgstAmount.toFixed(2)}</span>
-          </div>
-        )}
-        {igstAmount > 0 && (
-          <div className="flex justify-between text-sm">
-            <span className="text-gray-700 dark:text-dark-text-secondary">IGST ({formData.igst_rate}%):</span>
-            <span className="font-medium text-gray-900 dark:text-dark-text">₹{igstAmount.toFixed(2)}</span>
-          </div>
-        )}
-        <div className="flex justify-between text-base font-semibold border-t border-gray-300 dark:border-gray-600 pt-2">
-          <span className="text-gray-900 dark:text-dark-text">Total Amount:</span>
-          <span className="text-green-600 dark:text-green-400">₹{totalAmount.toFixed(2)}</span>
-        </div>
-      </div>
-
-      <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
-        <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancel
+          <Plus className="w-4 h-4 mr-2" />
+          Add Material
         </Button>
-        <Button type="submit">{invoice ? 'Update Invoice' : 'Save Invoice'}</Button>
-      </div>
-    </form>
+
+        {/* GST Section */}
+        <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-2">
+              GST Type
+            </label>
+            <div className="flex gap-4">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="gst_type"
+                  value="igst"
+                  checked={formData.gst_type === 'igst'}
+                  onChange={handleChange}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700 dark:text-dark-text">IGST</span>
+              </label>
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  name="gst_type"
+                  value="cgst_sgst"
+                  checked={formData.gst_type === 'cgst_sgst'}
+                  onChange={handleChange}
+                  className="mr-2"
+                />
+                <span className="text-sm text-gray-700 dark:text-dark-text">CGST + SGST</span>
+              </label>
+            </div>
+          </div>
+          <div>
+            {formData.gst_type === 'igst' ? (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                  IGST Rate (%)
+                </label>
+                <input
+                  type="number"
+                  name="igst"
+                  value={formData.igst}
+                  onChange={handleChange}
+                  step="0.01"
+                  min="0"
+                  max="100"
+                  className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                />
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 gap-2">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                    CGST (%)
+                  </label>
+                  <input
+                    type="number"
+                    name="cgst"
+                    value={formData.cgst}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+                    SGST (%)
+                  </label>
+                  <input
+                    type="number"
+                    name="sgst"
+                    value={formData.sgst}
+                    onChange={handleChange}
+                    step="0.01"
+                    min="0"
+                    max="100"
+                    className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* Amount Summary */}
+        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg space-y-2">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">Subtotal:</span>
+            <span className="font-medium text-gray-900 dark:text-dark-text">₹{totals.subtotal}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600 dark:text-gray-400">
+              GST ({formData.gst_type === 'igst' ? `IGST ${formData.igst}%` : `CGST ${formData.cgst}% + SGST ${formData.sgst}%`}):
+            </span>
+            <span className="font-medium text-gray-900 dark:text-dark-text">₹{totals.gstAmount}</span>
+          </div>
+          <div className="flex justify-between text-lg font-bold border-t border-gray-300 dark:border-gray-600 pt-2">
+            <span className="text-gray-900 dark:text-dark-text">Total Amount:</span>
+            <span className="text-brand-red">₹{totals.total}</span>
+          </div>
+        </div>
+
+        {/* Action Buttons */}
+        <div className="flex justify-end gap-3 pt-4">
+          <Button type="button" onClick={onClose} variant="outline">
+            Cancel
+          </Button>
+          <Button type="submit" variant="primary">
+            Save Purchase Invoice
+          </Button>
+        </div>
+      </form>
+    </div>
   );
 };
 
 const Purchase = () => {
-  const [invoices, setInvoices] = useState([]);
-  const [suppliers, setSuppliers] = useState([]);
-  const [inventoryItems, setInventoryItems] = useState([]);
+  const [purchases, setPurchases] = useState([]);
+  const [showForm, setShowForm] = useState(false);
   const [loading, setLoading] = useState(false);
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [editingInvoice, setEditingInvoice] = useState(null);
-  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
-  const [invoiceToDelete, setInvoiceToDelete] = useState(null);
-  const [searchTerm, setSearchTerm] = useState('');
-  const [statusFilter, setStatusFilter] = useState('');
+  const [suppliers, setSuppliers] = useState([]);
+  const [searchFilters, setSearchFilters] = useState({
+    invoice_no: '',
+    supplier_id: '',
+    date_from: '',
+    date_to: '',
+  });
 
   useEffect(() => {
-    fetchSuppliers();
-    fetchInventoryItems();
-    fetchInvoices();
+    loadPurchases();
+    loadSuppliers();
   }, []);
 
-  const fetchSuppliers = async () => {
+  const loadSuppliers = async () => {
     try {
       const data = await dbOperations.getAll('suppliers');
-      const sorted = (data || []).sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')));
-      setSuppliers(sorted);
+      setSuppliers(data || []);
     } catch (error) {
-      console.error('Error fetching suppliers:', error);
-      toast.error('Failed to load suppliers');
+      console.error('Error loading suppliers:', error);
     }
   };
 
-  const fetchInventoryItems = async () => {
+  const loadPurchases = async () => {
     try {
-      const { data, error } = await supabase
-        .from('inventory_items')
-        .select('id, item_name, unit, current_stock')
-        .order('item_name');
-
-      if (error) throw error;
-      setInventoryItems(data || []);
+      setLoading(true);
+      const data = await dbOperations.getAll('purchases');
+      setPurchases(data || []);
     } catch (error) {
-      console.error('Error fetching inventory items:', error);
-      toast.error('Failed to load inventory items');
-    }
-  };
-
-  const fetchInvoices = async () => {
-    setLoading(true);
-    try {
-      const { data, error } = await supabase
-        .from('purchases')
-        .select(`
-          *,
-          supplier:suppliers(id, name),
-          item:inventory_items(id, item_name, unit)
-        `)
-        .order('invoice_date', { ascending: false })
-        .order('created_at', { ascending: false });
-
-      if (error) throw error;
-      setInvoices(data || []);
-    } catch (error) {
-      console.error('Error fetching invoices:', error);
-      toast.error('Failed to load purchase invoices');
+      console.error('Error loading purchases:', error);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSaveInvoice = async (invoiceData) => {
+  const handleSearchChange = (e) => {
+    const { name, value } = e.target;
+    setSearchFilters({ ...searchFilters, [name]: value });
+  };
+
+  const filteredPurchases = purchases.filter((purchase) => {
+    const matchesInvoiceNo = !searchFilters.invoice_no || 
+      purchase.invoice_no?.toLowerCase().includes(searchFilters.invoice_no.toLowerCase());
+    
+    const matchesSupplier = !searchFilters.supplier_id || 
+      purchase.supplier_id === searchFilters.supplier_id;
+    
+    const matchesDateFrom = !searchFilters.date_from || 
+      purchase.invoice_date >= searchFilters.date_from;
+    
+    const matchesDateTo = !searchFilters.date_to || 
+      purchase.invoice_date <= searchFilters.date_to;
+    
+    return matchesInvoiceNo && matchesSupplier && matchesDateFrom && matchesDateTo;
+  });
+
+  const handleSave = async (purchaseData) => {
     try {
-      const subtotal = parseFloat(invoiceData.quantity) * parseFloat(invoiceData.unit_price);
-      const cgst = (subtotal * parseFloat(invoiceData.cgst_rate || 0)) / 100;
-      const sgst = (subtotal * parseFloat(invoiceData.sgst_rate || 0)) / 100;
-      const igst = (subtotal * parseFloat(invoiceData.igst_rate || 0)) / 100;
-      const total = subtotal + cgst + sgst + igst;
+      const purchaseId = Date.now().toString();
+      
+      // 1. Save main purchase invoice
+      await dbOperations.insert('purchases', {
+        id: purchaseId,
+        invoice_no: purchaseData.invoice_no,
+        invoice_date: purchaseData.invoice_date,
+        supplier_id: purchaseData.supplier_id,
+        supplier_name: purchaseData.supplier_name,
+        gst_type: purchaseData.gst_type,
+        igst: purchaseData.igst,
+        cgst: purchaseData.cgst,
+        sgst: purchaseData.sgst,
+        subtotal: purchaseData.subtotal,
+        gst_amount: purchaseData.gst_amount,
+        total_amount: purchaseData.total_amount,
+        created_at: purchaseData.created_at,
+      });
 
-      const purchaseRecord = {
-        ...invoiceData,
-        subtotal,
-        cgst_amount: cgst,
-        sgst_amount: sgst,
-        igst_amount: igst,
-        total_amount: total,
-      };
+      // 2. Save each material and update stock
+      for (const material of purchaseData.materials) {
+        const materialId = `${purchaseId}_${material.id}`;
+        
+        // Save purchase item
+        await dbOperations.insert('purchase_items', {
+          id: materialId,
+          purchase_id: purchaseId,
+          material_name: material.material_name,
+          category_id: material.category_id,
+          quantity: parseFloat(material.quantity),
+          unit: material.unit,
+          rate: parseFloat(material.rate),
+          total: parseFloat(material.quantity) * parseFloat(material.rate),
+          created_at: new Date().toISOString(),
+        });
 
-      if (editingInvoice) {
-        const { error } = await supabase
-          .from('purchases')
-          .update(purchaseRecord)
-          .eq('id', editingInvoice.id);
-
-        if (error) throw error;
-        toast.success('Purchase invoice updated successfully!');
-      } else {
-        const { data: newInvoice, error: invoiceError } = await supabase
-          .from('purchases')
-          .insert([purchaseRecord])
-          .select()
-          .single();
-
-        if (invoiceError) throw invoiceError;
-
-        const { error: movementError } = await supabase
-          .from('stock_movements')
-          .insert([{
-            item_id: newInvoice.item_id,
-            movement_type: 'in',
-            quantity: newInvoice.quantity,
-            movement_date: newInvoice.invoice_date,
-            reference_type: 'purchase',
-            reference_id: newInvoice.id,
-            reference_no: newInvoice.invoice_no || `PUR-${newInvoice.id}`,
-            notes: `Purchase from ${suppliers.find(s => s.id === newInvoice.supplier_id)?.name || 'supplier'}`,
-          }]);
-
-        if (movementError) throw movementError;
-
-        const { error: ledgerError } = await supabase
-          .from('supplier_ledger_entries')
-          .insert([{
-            supplier_id: newInvoice.supplier_id,
-            entry_type: 'debit',
-            amount: newInvoice.total_amount,
-            entry_date: newInvoice.invoice_date,
-            reference_type: 'purchase',
-            reference_id: newInvoice.id,
-            reference_no: newInvoice.invoice_no || `PUR-${newInvoice.id}`,
-            notes: `Purchase invoice - ${inventoryItems.find(i => i.id === newInvoice.item_id)?.item_name || 'item'}`,
-          }]);
-
-        if (ledgerError) throw ledgerError;
-
-        const totalGst = cgst + sgst + igst;
-        if (totalGst > 0) {
-          const { error: gstError } = await supabase
-            .from('gst_ledger')
-            .insert([{
-              transaction_date: newInvoice.invoice_date,
-              transaction_type: 'purchase',
-              document_no: newInvoice.invoice_no || `PUR-${newInvoice.id}`,
-              party_name: suppliers.find(s => s.id === newInvoice.supplier_id)?.name || '',
-              taxable_amount: subtotal,
-              cgst_amount: cgst,
-              sgst_amount: sgst,
-              igst_amount: igst,
-              total_gst: totalGst,
-              entry_type: 'input_credit',
-              reference_type: 'purchase',
-              reference_id: newInvoice.id,
-            }]);
-
-          if (gstError) throw gstError;
-        }
-
-        toast.success('Purchase invoice created successfully with stock & ledger entries!');
+        // Update stock movement
+        await dbOperations.insert('stock_movements', {
+          id: `stock_${materialId}`,
+          material_name: material.material_name,
+          category_id: material.category_id,
+          movement_type: 'in',
+          quantity: parseFloat(material.quantity),
+          unit: material.unit,
+          reference_type: 'purchase',
+          reference_id: purchaseId,
+          reference_no: purchaseData.invoice_no,
+          movement_date: purchaseData.invoice_date,
+          created_at: new Date().toISOString(),
+        });
       }
 
-      setIsModalOpen(false);
-      setEditingInvoice(null);
-      fetchInvoices();
+      // 3. Add to GST Ledger
+      const gstId = `${purchaseId}_gst`;
+      await dbOperations.insert('gst_ledger', {
+        id: gstId,
+        transaction_type: 'purchase',
+        transaction_date: purchaseData.invoice_date,
+        document_no: purchaseData.invoice_no,
+        party_name: purchaseData.supplier_name,
+        gst_type: purchaseData.gst_type,
+        igst: purchaseData.gst_type === 'igst' ? purchaseData.gst_amount : 0,
+        cgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
+        sgst: purchaseData.gst_type === 'cgst_sgst' ? purchaseData.gst_amount / 2 : 0,
+        total_gst: purchaseData.gst_amount,
+        taxable_amount: purchaseData.subtotal,
+        entry_type: 'input',
+        created_at: new Date().toISOString(),
+      });
+
+      toast.success(`Purchase invoice saved successfully! ${purchaseData.materials.length} materials added to stock.`);
+      setShowForm(false);
+      loadPurchases();
     } catch (error) {
-      console.error('Error saving invoice:', error);
+      console.error('Error saving purchase:', error);
       toast.error('Failed to save purchase invoice');
     }
   };
 
-  const handleDeleteInvoice = async () => {
+  const handleDelete = async (id) => {
+    if (!window.confirm('Are you sure you want to delete this purchase invoice?')) {
+      return;
+    }
+
     try {
-      const { error } = await supabase
-        .from('purchases')
-        .delete()
-        .eq('id', invoiceToDelete.id);
-
-      if (error) throw error;
-
-      toast.success('Purchase invoice deleted successfully.');
-      setIsDeleteModalOpen(false);
-      setInvoiceToDelete(null);
-      fetchInvoices();
+      await dbOperations.delete('purchases', id);
+      toast.success('Purchase invoice deleted');
+      loadPurchases();
     } catch (error) {
-      console.error('Error deleting invoice:', error);
-      toast.error('Failed to delete invoice. It may be referenced in other records.');
+      console.error('Error deleting purchase:', error);
+      toast.error('Failed to delete purchase invoice');
     }
   };
 
-  const exportToCSV = () => {
-    const headers = ['Invoice No', 'Date', 'Supplier', 'Item', 'Quantity', 'Unit Price', 'Subtotal', 'CGST', 'SGST', 'IGST', 'Total', 'Status'];
-    const csvContent = [
-      headers.join(','),
-      ...filteredInvoices.map((inv) =>
-        [
-          inv.invoice_no || `PUR-${inv.id}`,
-          inv.invoice_date,
-          inv.supplier?.name || '',
-          inv.item?.item_name || '',
-          inv.quantity,
-          inv.unit_price,
-          inv.subtotal,
-          inv.cgst_amount,
-          inv.sgst_amount,
-          inv.igst_amount,
-          inv.total_amount,
-          inv.payment_status,
-        ].join(',')
-      ),
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv' });
-    const url = window.URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `purchase_invoices_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    toast.success('Purchase invoices exported to CSV');
-  };
-
-  const handlePrint = () => {
-    window.print();
-    toast.success('Print dialog opened');
-  };
-
-  const filteredInvoices = invoices.filter((inv) => {
-    const matchesSearch =
-      inv.invoice_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.supplier?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      inv.item?.item_name?.toLowerCase().includes(searchTerm.toLowerCase());
-    const matchesStatus = !statusFilter || inv.payment_status === statusFilter;
-    return matchesSearch && matchesStatus;
-  });
-
-  if (loading) {
-    return (
-      <Card>
-        <div className="flex items-center justify-center py-12">
-          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-red"></div>
-          <span className="ml-3 text-gray-600 dark:text-dark-text-secondary">Loading purchase invoices...</span>
-        </div>
-      </Card>
-    );
-  }
-
   return (
-    <div>
-      <Modal
-        isOpen={isModalOpen}
-        onClose={() => {
-          setIsModalOpen(false);
-          setEditingInvoice(null);
-        }}
-        title={editingInvoice ? 'Edit Purchase Invoice' : 'New Purchase Invoice'}
-      >
-        <PurchaseInvoiceForm
-          invoice={editingInvoice}
-          suppliers={suppliers}
-          inventoryItems={inventoryItems}
-          onSave={handleSaveInvoice}
-          onCancel={() => {
-            setIsModalOpen(false);
-            setEditingInvoice(null);
-          }}
-        />
-      </Modal>
-
-      <ConfirmModal
-        isOpen={isDeleteModalOpen}
-        onClose={() => setIsDeleteModalOpen(false)}
-        onConfirm={handleDeleteInvoice}
-        title="Delete Purchase Invoice"
-        message={`Are you sure you want to delete invoice "${invoiceToDelete?.invoice_no || `PUR-${invoiceToDelete?.id}`}"? This will also remove related stock movements and ledger entries.`}
-      />
-
+    <div className="p-6">
       <Card>
         <div className="flex justify-between items-center mb-6">
-          <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">Purchase Invoices</h3>
+          <h2 className="text-2xl font-bold text-gray-900 dark:text-dark-text">
+            Purchase Invoices
+          </h2>
           <Button
-            onClick={() => {
-              if (suppliers.length === 0) {
-                toast.error('Please add suppliers first in the Supplier module');
-                return;
-              }
-              if (inventoryItems.length === 0) {
-                toast.error('Please add inventory items first');
-                return;
-              }
-              setIsModalOpen(true);
-            }}
+            onClick={() => setShowForm(true)}
+            variant="primary"
           >
-            <PlusCircle className="h-4 w-4 mr-2" />
+            <PlusCircle className="w-5 h-5 mr-2" />
             Add Purchase Invoice
           </Button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
-          <div className="relative md:col-span-2">
-            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+        {/* Search Filters */}
+        <div className="grid grid-cols-4 gap-3 mb-6 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+          <div>
             <input
               type="text"
-              placeholder="Search by invoice no, supplier, or item..."
-              value={searchTerm}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+              name="invoice_no"
+              value={searchFilters.invoice_no}
+              onChange={handleSearchChange}
+              placeholder="Search by Invoice No..."
+              className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
             />
           </div>
-
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-          >
-            <option value="">All Status</option>
-            <option value="pending">Pending</option>
-            <option value="partial">Partial</option>
-            <option value="paid">Paid</option>
-          </select>
+          <div>
+            <select
+              name="supplier_id"
+              value={searchFilters.supplier_id}
+              onChange={handleSearchChange}
+              className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            >
+              <option value="">All Suppliers</option>
+              {suppliers.map((supplier) => (
+                <option key={supplier.id} value={supplier.id}>
+                  {supplier.name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <input
+              type="date"
+              name="date_from"
+              value={searchFilters.date_from}
+              onChange={handleSearchChange}
+              placeholder="From Date"
+              className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            />
+          </div>
+          <div>
+            <input
+              type="date"
+              name="date_to"
+              value={searchFilters.date_to}
+              onChange={handleSearchChange}
+              placeholder="To Date"
+              className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            />
+          </div>
         </div>
 
-        <div className="flex items-center justify-end space-x-2 mb-4">
-          <Button variant="secondary" onClick={exportToCSV}>
-            <Download className="h-4 w-4 mr-2" />
-            Export CSV
-          </Button>
-          <Button variant="secondary" onClick={handlePrint}>
-            <Printer className="h-4 w-4 mr-2" />
-            Print
-          </Button>
-        </div>
-
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead className="bg-gray-50 dark:bg-gray-700 text-left">
-              <tr>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Invoice No</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Date</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Supplier</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Item</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Qty</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Total</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Status</th>
-                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
-              </tr>
-            </thead>
-            <tbody>
-              {filteredInvoices.length > 0 ? (
-                filteredInvoices.map((invoice) => (
-                  <tr
-                    key={invoice.id}
-                    className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
-                  >
-                    <td className="p-3 font-medium text-gray-900 dark:text-dark-text">
-                      {invoice.invoice_no || `PUR-${invoice.id}`}
+        {loading ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">Loading...</p>
+          </div>
+        ) : filteredPurchases.length === 0 ? (
+          <div className="text-center py-12">
+            <p className="text-gray-500 dark:text-gray-400">
+              {purchases.length === 0 ? 'No purchase invoices found' : 'No matching purchase invoices found'}
+            </p>
+            <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
+              {purchases.length === 0 ? 'Add your first purchase invoice to get started' : 'Try adjusting your search filters'}
+            </p>
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="bg-gray-50 dark:bg-gray-800">
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Invoice No</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Date</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Supplier</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Materials</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">GST</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Total</th>
+                  <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase">Actions</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
+                {filteredPurchases.map((purchase) => (
+                  <tr key={purchase.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">{purchase.invoice_no}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
+                      {new Date(purchase.invoice_date).toLocaleDateString('en-GB')}
                     </td>
-                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {new Date(invoice.invoice_date).toLocaleDateString('en-GB')}
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">{purchase.supplier_name}</td>
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
+                      {purchase.material_name || 'Multiple items'}
                     </td>
-                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {invoice.supplier?.name || '-'}
+                    <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">₹{purchase.gst_amount?.toFixed(2)}</td>
+                    <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-dark-text">
+                      ₹{purchase.total_amount?.toFixed(2)}
                     </td>
-                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                      {invoice.item?.item_name || '-'}
-                    </td>
-                    <td className="p-3 text-right text-gray-700 dark:text-dark-text-secondary">
-                      {parseFloat(invoice.quantity).toFixed(2)} {invoice.item?.unit}
-                    </td>
-                    <td className="p-3 text-right font-medium text-green-600 dark:text-green-400">
-                      ₹{parseFloat(invoice.total_amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
-                    </td>
-                    <td className="p-3">
-                      <span
-                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          invoice.payment_status === 'paid'
-                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                            : invoice.payment_status === 'partial'
-                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                        }`}
+                    <td className="px-4 py-3 text-sm">
+                      <button
+                        onClick={() => handleDelete(purchase.id)}
+                        className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
                       >
-                        {invoice.payment_status?.toUpperCase()}
-                      </span>
-                    </td>
-                    <td className="p-3 text-right">
-                      <div className="flex justify-end items-center space-x-2">
-                        <Button
-                          variant="ghost"
-                          className="p-2 h-auto"
-                          onClick={() => {
-                            setEditingInvoice(invoice);
-                            setIsModalOpen(true);
-                          }}
-                        >
-                          <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                        </Button>
-                        <Button
-                          variant="ghost"
-                          className="p-2 h-auto"
-                          onClick={() => {
-                            setInvoiceToDelete(invoice);
-                            setIsDeleteModalOpen(true);
-                          }}
-                        >
-                          <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
-                        </Button>
-                      </div>
+                        <Trash2 className="w-4 h-4" />
+                      </button>
                     </td>
                   </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="8" className="text-center p-12">
-                    <div className="flex flex-col items-center text-gray-500 dark:text-dark-text-secondary">
-                      <FileText className="h-12 w-12 mb-3 text-gray-400" />
-                      <p className="text-lg font-medium">No purchase invoices found</p>
-                      <p className="text-sm mt-1">
-                        {searchTerm || statusFilter
-                          ? 'Try adjusting your filters'
-                          : 'Add your first purchase invoice to get started'}
-                      </p>
-                    </div>
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {filteredInvoices.length > 0 && (
-          <div className="mt-4 text-sm text-gray-600 dark:text-dark-text-secondary">
-            Showing {filteredInvoices.length} of {invoices.length} invoice(s)
+                ))}
+              </tbody>
+            </table>
           </div>
         )}
       </Card>
+
+      <Modal isOpen={showForm} onClose={() => setShowForm(false)} size="xl">
+        <PurchaseInvoiceForm
+          onClose={() => setShowForm(false)}
+          onSave={handleSave}
+        />
+      </Modal>
     </div>
   );
 };
