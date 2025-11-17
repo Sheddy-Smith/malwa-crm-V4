@@ -99,7 +99,6 @@ import Invoice from "./accounts/Invoice";
 import Challan from "./accounts/Challan";
 import Sellchallan from "./accounts/Sellchallan";
 import GSTLedger from "./accounts/Gstledger";
-import CashReceipt from "./accounts/CashReceipt";
 
 const tabs = [
   {
@@ -127,12 +126,6 @@ const tabs = [
   id:"Sellchallan",
   label:"Sell-Challan",
   component:Sellchallan,
-
-},
-{
-  id:"cashreceipt",
-  label:"Cash Receipt",
-  component:CashReceipt,
 
 },
 {

@@ -13,6 +13,25 @@ const CustomerForm = ({ customer, onSave, onCancel }) => {
     );
     const handleChange = (e) => {
         const { name, value } = e.target;
+        
+        // Phone validation - only numbers, max 10 digits
+        if (name === 'phone') {
+            const numericValue = value.replace(/\D/g, '');
+            if (numericValue.length <= 10) {
+                setFormData(prev => ({...prev, [name]: numericValue}));
+            }
+            return;
+        }
+        
+        // GSTIN validation - uppercase alphanumeric, max 15 characters
+        if (name === 'gstin') {
+            const upperValue = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+            if (upperValue.length <= 15) {
+                setFormData(prev => ({...prev, [name]: upperValue}));
+            }
+            return;
+        }
+        
         setFormData(prev => ({...prev, [name]: value}));
     }
 
@@ -20,6 +39,22 @@ const CustomerForm = ({ customer, onSave, onCancel }) => {
         e.preventDefault();
         if(!formData.name || !formData.phone){
             toast.error("Customer name and phone are required.");
+            return;
+        }
+        if(formData.phone.length !== 10){
+            toast.error("Phone number must be exactly 10 digits.");
+            return;
+        }
+        if(!/^\d{10}$/.test(formData.phone)){
+            toast.error("Phone number must contain only digits.");
+            return;
+        }
+        if(formData.gstin && formData.gstin.length !== 15){
+            toast.error("GST number must be exactly 15 characters.");
+            return;
+        }
+        if(formData.gstin && !/^[A-Z0-9]{15}$/.test(formData.gstin)){
+            toast.error("GST number must contain only letters and numbers.");
             return;
         }
         onSave(formData);
@@ -32,7 +67,20 @@ const CustomerForm = ({ customer, onSave, onCancel }) => {
             </div>
              <div>
                 <label>Phone</label>
-                <input type="text" name="phone" value={formData.phone} onChange={handleChange} className="w-full mt-1 p-2 border rounded-lg bg-transparent dark:border-gray-600 focus:ring-2 focus:ring-brand-red" required />
+                <input 
+                    type="tel" 
+                    name="phone" 
+                    value={formData.phone} 
+                    onChange={handleChange} 
+                    className="w-full mt-1 p-2 border rounded-lg bg-transparent dark:border-gray-600 focus:ring-2 focus:ring-brand-red" 
+                    placeholder="10 digit mobile number"
+                    maxLength="10"
+                    pattern="\d{10}"
+                    required 
+                />
+                {formData.phone && formData.phone.length !== 10 && (
+                    <p className="text-xs text-red-500 mt-1">Phone number must be 10 digits</p>
+                )}
             </div>
              <div>
                 <label>Address</label>
@@ -40,7 +88,18 @@ const CustomerForm = ({ customer, onSave, onCancel }) => {
             </div>
              <div>
                 <label>GSTIN (Optional)</label>
-                <input type="text" name="gstin" value={formData.gstin} onChange={handleChange} className="w-full mt-1 p-2 border rounded-lg bg-transparent dark:border-gray-600 focus:ring-2 focus:ring-brand-red" />
+                <input 
+                    type="text" 
+                    name="gstin" 
+                    value={formData.gstin} 
+                    onChange={handleChange} 
+                    className="w-full mt-1 p-2 border rounded-lg bg-transparent dark:border-gray-600 focus:ring-2 focus:ring-brand-red" 
+                    placeholder="15 character GST number"
+                    maxLength="15"
+                />
+                {formData.gstin && formData.gstin.length > 0 && formData.gstin.length !== 15 && (
+                    <p className="text-xs text-red-500 mt-1">GST number must be 15 characters</p>
+                )}
             </div>
              <div className="flex justify-end space-x-2">
                 <Button type="button" variant="secondary" onClick={onCancel}>Cancel</Button>

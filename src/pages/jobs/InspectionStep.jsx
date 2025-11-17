@@ -118,7 +118,29 @@ const InspectionStep = () => {
     setFilteredRecords(records);
   };
 
-  const handleDetailChange = (e) => setDetails({ ...details, [e.target.name]: e.target.value });
+  const handleDetailChange = (e) => {
+    const { name, value } = e.target;
+    
+    // Phone validation - only numbers, max 10 digits
+    if (name === 'contactNo') {
+      const numericValue = value.replace(/\D/g, '');
+      if (numericValue.length <= 10) {
+        setDetails({ ...details, [name]: numericValue });
+      }
+      return;
+    }
+    
+    // GSTIN validation - uppercase alphanumeric, max 15 characters
+    if (name === 'gstNumber') {
+      const upperValue = value.toUpperCase().replace(/[^A-Z0-9]/g, '');
+      if (upperValue.length <= 15) {
+        setDetails({ ...details, [name]: upperValue });
+      }
+      return;
+    }
+    
+    setDetails({ ...details, [name]: value });
+  };
 
   const saveDetails = async (itemsOverride = null) => {
     if (!details.vehicleNo || !details.ownerName) {
@@ -134,11 +156,14 @@ const InspectionStep = () => {
       const total = parseFloat((cost * mult).toFixed(2));
       return {
         name: it.item ?? it.name ?? '',
+        item: it.item ?? it.name ?? '',
         category: cat,
         condition: it.condition,
         cost,
         multiplier: mult,
         total,
+        workOrder: it.workOrder || '',
+        assignedTo: it.assignedTo || '',
       };
     });
 
@@ -164,18 +189,32 @@ const InspectionStep = () => {
         toast.success('Inspection saved successfully');
       }
 
-      // Create/Update customer contact by phone/name
-      if (details.contactNo) {
+      // Create/Update customer in Customer module
+      if (details.contactNo && details.contactNo.length === 10) {
         const existing = await dbOperations.getByIndex('customers', 'phone', details.contactNo);
+        const customerData = {
+          name: details.ownerName,
+          phone: details.contactNo,
+          address: details.address || '',
+          gstin: details.gstNumber || '',
+          type: 'customer',
+          credit_limit: 0,
+          credit_days: 30
+        };
+        
         if (existing && existing.length > 0) {
+          // Update existing customer with new details
           const c = existing[0];
-          await dbOperations.update('customers', c.id, { name: details.ownerName || c.name, phone: details.contactNo });
-        } else {
-          await dbOperations.insert('customers', {
-            name: details.ownerName,
-            phone: details.contactNo,
-            type: 'customer'
+          await dbOperations.update('customers', c.id, {
+            ...customerData,
+            credit_limit: c.credit_limit || 0,
+            credit_days: c.credit_days || 30
           });
+          toast.success('Customer details updated in Customer module');
+        } else {
+          // Create new customer
+          await dbOperations.insert('customers', customerData);
+          toast.success('New customer added to Customer module');
         }
       }
 
@@ -240,6 +279,8 @@ const InspectionStep = () => {
       condition: it.condition ?? 'OK',
       cost: it.cost ?? 0,
       multiplier: it.multiplier ?? getCategoryMultiplier((it.category ?? '').trim()) ?? 1,
+      workOrder: it.workOrder ?? '',
+      assignedTo: it.assignedTo ?? '',
     }));
     setItems(uiItems);
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -393,7 +434,12 @@ const InspectionStep = () => {
               value={details.contactNo}
               onChange={handleDetailChange}
               className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
+              placeholder="10 digit mobile number"
+              maxLength="10"
             />
+            {details.contactNo && details.contactNo.length > 0 && details.contactNo.length !== 10 && (
+              <p className="text-xs text-red-500 mt-1">Phone must be 10 digits</p>
+            )}
           </div>
           <div>
             <label className="font-medium text-xs">Inspection Date:</label>
@@ -426,6 +472,9 @@ const InspectionStep = () => {
               maxLength="15"
               className="w-full mt-1 p-1.5 text-sm border rounded-lg dark:bg-gray-700 dark:border-gray-600 dark:text-white"
             />
+            {details.gstNumber && details.gstNumber.length > 0 && details.gstNumber.length !== 15 && (
+              <p className="text-xs text-red-500 mt-1">GST must be 15 characters</p>
+            )}
           </div>
           {/* Status field removed as per requirement */}
         </div>
@@ -532,7 +581,7 @@ const InspectionStep = () => {
                     <td className="p-2">{it.item || it.name}</td>
                     <td className="p-2">{it.category}</td>
                     <td className="p-2">{it.cost}</td>
-                    <td className="p-2">{it.multiplier ?? multipliers[it.category] ?? 1}</td>
+                    <td className="p-2">{it.multiplier ?? getCategoryMultiplier(it.category?.trim() || '') ?? 1}</td>
                     <td className="p-2">{calculateTotal(it)}</td>
                     <td className="p-2">{it.workOrder || '-'}</td>
                     <td className="p-2">{it.assignedTo || '-'}</td>

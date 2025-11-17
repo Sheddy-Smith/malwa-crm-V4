@@ -1,140 +1,36 @@
 import { useState, useEffect } from 'react';
-import Button from '@/components/ui/Button';
 import Card from '@/components/ui/Card';
+import Button from '@/components/ui/Button';
 import Modal from '@/components/ui/Modal';
+import ConfirmModal from '@/components/ui/ConfirmModal';
 import { toast } from 'sonner';
-import { PlusCircle, Trash2, Plus, Eye, Printer, Download, Edit } from 'lucide-react';
-import { dbOperations } from '@/lib/db';
-import jsPDF from 'jspdf';
-import html2canvas from 'html2canvas';
+import { PlusCircle, Edit, Trash2, Download, Printer, Search, TruckIcon } from 'lucide-react';
 
-const PurchaseChallanForm = ({ onClose, onSave }) => {
-  const [suppliers, setSuppliers] = useState([]);
-  const [categories, setCategories] = useState([]);
-
-  // Generate challan number in format: CR/YY-YY/XXXX
-  const generateChallanNo = async () => {
-    const currentYear = new Date().getFullYear();
-    const currentMonth = new Date().getMonth();
-    let yearStart, yearEnd;
-    if (currentMonth >= 3) {
-      yearStart = currentYear.toString().slice(-2);
-      yearEnd = (currentYear + 1).toString().slice(-2);
-    } else {
-      yearStart = (currentYear - 1).toString().slice(-2);
-      yearEnd = currentYear.toString().slice(-2);
+const ChallanForm = ({ challan, suppliers, inventoryItems, onSave, onCancel }) => {
+  const [formData, setFormData] = useState(
+    challan || {
+      challan_no: '',
+      challan_date: new Date().toISOString().split('T')[0],
+      supplier_id: '',
+      item_id: '',
+      quantity: 0,
+      rate: 0,
+      source: '',
+      vehicle_no: '',
+      payment_status: 'pending',
+      notes: '',
     }
-    // Get all challans for this financial year
-    let sequence = 1;
-    try {
-      const allChallans = await dbOperations.getAll('purchase_challans');
-      const fyChallans = allChallans.filter(c => {
-        if (!c.challan_no) return false;
-        return c.challan_no.startsWith(`CR/${yearStart}-${yearEnd}/`);
-      });
-      sequence = fyChallans.length + 1;
-    } catch (e) {}
-    const seqStr = sequence.toString().padStart(4, '0');
-    return `CR/${yearStart}-${yearEnd}/${seqStr}`;
-  };
-
-  const [formData, setFormData] = useState({
-    challan_no: '',
-    challan_date: new Date().toISOString().split('T')[0],
-    supplier_id: '',
-    payment_mode: 'pending',
-    payment_amount: 0,
-    payment_status: 'pending',
-  });
-  const [materials, setMaterials] = useState([
-    {
-      id: Date.now(),
-      material_name: '',
-      category_id: '',
-      quantity: '',
-      unit: 'pcs',
-      rate: '',
-    }
-  ]);
-
-  useEffect(() => {
-    loadSuppliers();
-    loadCategories();
-    // Generate challan number on mount
-    generateChallanNo().then(challanNo => {
-      setFormData(prev => ({ ...prev, challan_no: challanNo }));
-    });
-  }, []);
-
-  const loadSuppliers = async () => {
-    try {
-      const data = await dbOperations.getAll('suppliers');
-      setSuppliers(data || []);
-    } catch (error) {
-      console.error('Error loading suppliers:', error);
-    }
-  };
-
-  const loadCategories = async () => {
-    try {
-      const data = await dbOperations.getAll('inventory_categories');
-      setCategories(data || []);
-    } catch (error) {
-      console.error('Error loading categories:', error);
-    }
-  };
+  );
 
   const handleChange = (e) => {
     const { name, value } = e.target;
     setFormData({ ...formData, [name]: value });
   };
 
-  const handleMaterialChange = (id, field, value) => {
-    setMaterials(prevMaterials => 
-      prevMaterials.map(item => 
-        item.id === id ? { ...item, [field]: value } : item
-      )
-    );
-  };
-
-  const addMaterialRow = () => {
-    setMaterials(prevMaterials => [...prevMaterials, {
-      id: Date.now() + Math.random(), // Better unique ID
-      material_name: '',
-      category_id: '',
-      quantity: '',
-      unit: 'pcs',
-      rate: '',
-    }]);
-  };
-
-  const removeMaterialRow = (id) => {
-    if (materials.length > 1) {
-      setMaterials(materials.filter(item => item.id !== id));
-    }
-  };
-
-  const calculateMaterialTotal = (quantity, rate) => {
-    return (parseFloat(quantity) || 0) * (parseFloat(rate) || 0);
-  };
-
-  const calculateTotals = () => {
-    const total = materials.reduce((sum, item) => 
-      sum + calculateMaterialTotal(item.quantity, item.rate), 0
-    );
-
-    return {
-      total: total.toFixed(2),
-    };
-  };
-
-  const handleSubmit = async (e) => {
+  const handleSubmit = (e) => {
     e.preventDefault();
 
-    // Use existing challan number from formData
-    const challanNo = formData.challan_no;
-
-    if (!challanNo) {
+    if (!formData.challan_no) {
       toast.error('Challan number is required');
       return;
     }
@@ -142,883 +38,596 @@ const PurchaseChallanForm = ({ onClose, onSave }) => {
       toast.error('Please select a supplier');
       return;
     }
-
-    // Check for duplicate challan number
-    try {
-      const existingChallans = await dbOperations.getAll('purchase_challans');
-      const duplicate = existingChallans.find(
-        challan => challan.challan_no === challanNo
-      );
-      if (duplicate) {
-        toast.error(`Duplicate challan number found! Challan ${challanNo} already exists.`);
-        return;
-      }
-    } catch (error) {
-      console.error('Error checking for duplicates:', error);
+    if (!formData.item_id) {
+      toast.error('Please select an item');
+      return;
     }
-
-    // Validate materials
-    const validMaterials = materials.filter(m => m.material_name && m.category_id && m.quantity && m.rate);
-    if (validMaterials.length === 0) {
-      toast.error('Please add at least one material with all required fields');
+    if (parseFloat(formData.quantity) <= 0) {
+      toast.error('Quantity must be greater than 0');
+      return;
+    }
+    if (parseFloat(formData.rate) <= 0) {
+      toast.error('Rate must be greater than 0');
       return;
     }
 
-    const amounts = calculateTotals();
-    const selectedSupplier = suppliers.find(s => s.id === formData.supplier_id);
-    const totalAmount = parseFloat(amounts.total);
-    const paymentAmount = parseFloat(formData.payment_amount) || 0;
-    // Determine payment status
-    let paymentStatus = 'pending';
-    if (paymentAmount >= totalAmount) {
-      paymentStatus = 'paid';
-    } else if (paymentAmount > 0) {
-      paymentStatus = 'partial';
-    }
-    const challanData = {
-      ...formData,
-      challan_no: challanNo,
-      supplier_name: selectedSupplier?.name || '',
-      materials: validMaterials,
-      total_amount: totalAmount,
-      payment_amount: paymentAmount,
-      payment_status: paymentStatus,
-      balance_due: totalAmount - paymentAmount,
-      created_at: new Date().toISOString(),
-    };
-    onSave(challanData);
+    const amount = parseFloat(formData.quantity) * parseFloat(formData.rate);
+    onSave({ ...formData, amount });
   };
 
-  const totals = calculateTotals();
-  const selectedSupplier = suppliers.find(s => s.id === formData.supplier_id);
+  const amount = parseFloat(formData.quantity || 0) * parseFloat(formData.rate || 0);
 
   return (
-    <div className="max-h-[85vh] overflow-y-auto">
-      <h2 className="text-xl font-bold text-gray-900 dark:text-dark-text mb-4">
-        Add Purchase Challan
-      </h2>
-
-      <form onSubmit={handleSubmit} className="space-y-4">
-        {/* Challan Header */}
-        <div className="grid grid-cols-3 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Challan No *
-            </label>
-            <input
-              type="text"
-              name="challan_no"
-              value={formData.challan_no}
-              placeholder="Auto-generated"
-              className="w-full p-2 border border-gray-300 rounded-lg bg-gray-100 dark:bg-gray-700 dark:border-gray-600 dark:text-dark-text cursor-not-allowed"
-              disabled
-              readOnly
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Date *
-            </label>
-            <input
-              type="date"
-              name="challan_date"
-              value={formData.challan_date}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-              required
-            />
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Supplier *
-            </label>
-            <select
-              name="supplier_id"
-              value={formData.supplier_id}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-              required
-            >
-              <option value="">Select Supplier</option>
-              {suppliers.map((supplier) => (
-                <option key={supplier.id} value={supplier.id}>
-                  {supplier.name} {supplier.company && `- ${supplier.company}`}
-                </option>
-              ))}
-            </select>
-            {selectedSupplier?.gstin && (
-              <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                GSTIN: {selectedSupplier.gstin}
-              </p>
-            )}
-          </div>
+    <form onSubmit={handleSubmit} className="space-y-4">
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Challan No *
+          </label>
+          <input
+            type="text"
+            name="challan_no"
+            value={formData.challan_no}
+            onChange={handleChange}
+            placeholder="e.g., CH-001"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            required
+          />
         </div>
 
-        {/* Payment Details */}
-        <div className="grid grid-cols-2 gap-4 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Payment Mode
-            </label>
-            <select
-              name="payment_mode"
-              value={formData.payment_mode}
-              onChange={handleChange}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            >
-              <option value="pending">Pending</option>
-              <option value="cash">Cash</option>
-              <option value="bank">Bank Transfer</option>
-              <option value="cheque">Cheque</option>
-              <option value="upi">UPI</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
-              Payment Amount (₹)
-            </label>
-            <input
-              type="number"
-              name="payment_amount"
-              value={formData.payment_amount}
-              onChange={handleChange}
-              placeholder="0.00"
-              step="0.01"
-              min="0"
-              max={totals.total}
-              className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-            />
-            <p className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-              Balance Due: ₹{(parseFloat(totals.total) - parseFloat(formData.payment_amount || 0)).toFixed(2)}
-            </p>
-          </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Challan Date *
+          </label>
+          <input
+            type="date"
+            name="challan_date"
+            value={formData.challan_date}
+            onChange={handleChange}
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            required
+          />
         </div>
+      </div>
 
-        {/* Materials Table */}
-        <div className="border border-gray-300 dark:border-gray-600 rounded-lg overflow-hidden">
-          <div className="overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="bg-gray-100 dark:bg-gray-700">
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '25%'}}>Material Name *</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '20%'}}>Category *</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '12%'}}>Quantity *</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '12%'}}>Unit</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '15%'}}>Rate *</th>
-                  <th className="px-3 py-2 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '13%'}}>Total</th>
-                  <th className="px-3 py-2 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase" style={{width: '3%'}}>Action</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-200 dark:divide-gray-600">
-                {materials.map((material) => (
-                  <tr key={material.id} className="bg-white dark:bg-dark-card">
-                    <td className="px-3 py-2">
-                      <input
-                        type="text"
-                        value={material.material_name}
-                        onChange={(e) => handleMaterialChange(material.id, 'material_name', e.target.value)}
-                        placeholder="Enter material name"
-                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        value={material.category_id}
-                        onChange={(e) => handleMaterialChange(material.id, 'category_id', e.target.value)}
-                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
-                      >
-                        <option value="">Select</option>
-                        {categories.map((category) => (
-                          <option key={category.id} value={category.id}>
-                            {category.name}
-                          </option>
-                        ))}
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={material.quantity}
-                        onChange={(e) => handleMaterialChange(material.id, 'quantity', e.target.value)}
-                        placeholder="0"
-                        step="0.01"
-                        min="0"
-                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <select
-                        value={material.unit}
-                        onChange={(e) => handleMaterialChange(material.id, 'unit', e.target.value)}
-                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
-                      >
-                        <option value="pcs">Pieces</option>
-                        <option value="kg">Kg</option>
-                        <option value="ltr">Liters</option>
-                        <option value="mtr">Meters</option>
-                        <option value="box">Box</option>
-                      </select>
-                    </td>
-                    <td className="px-3 py-2">
-                      <input
-                        type="number"
-                        value={material.rate}
-                        onChange={(e) => handleMaterialChange(material.id, 'rate', e.target.value)}
-                        placeholder="0.00"
-                        step="0.01"
-                        min="0"
-                        className="w-full p-1.5 text-sm border border-gray-300 rounded bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-1 focus:ring-brand-red"
-                      />
-                    </td>
-                    <td className="px-3 py-2">
-                      <span className="text-sm font-medium text-gray-900 dark:text-dark-text">
-                        ₹{calculateMaterialTotal(material.quantity, material.rate).toFixed(2)}
-                      </span>
-                    </td>
-                    <td className="px-3 py-2 text-center">
-                      <button
-                        type="button"
-                        onClick={() => removeMaterialRow(material.id)}
-                        disabled={materials.length === 1}
-                        className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300 disabled:opacity-30 disabled:cursor-not-allowed"
-                      >
-                        <Trash2 className="w-4 h-4" />
-                      </button>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        </div>
-
-        <Button
-          type="button"
-          onClick={addMaterialRow}
-          variant="outline"
-          className="w-full"
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Supplier *
+        </label>
+        <select
+          name="supplier_id"
+          value={formData.supplier_id}
+          onChange={handleChange}
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          required
         >
-          <Plus className="w-4 h-4 mr-2" />
-          Add Material
+          <option value="">Select Supplier</option>
+          {suppliers.map((supplier) => (
+            <option key={supplier.id} value={supplier.id}>
+              {supplier.name} {supplier.company ? `(${supplier.company})` : ''}
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Item *
+        </label>
+        <select
+          name="item_id"
+          value={formData.item_id}
+          onChange={handleChange}
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          required
+        >
+          <option value="">Select Item</option>
+          {inventoryItems.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.item_name || item.name} ({item.unit})
+            </option>
+          ))}
+        </select>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Quantity *
+          </label>
+          <input
+            type="number"
+            name="quantity"
+            value={formData.quantity}
+            onChange={handleChange}
+            step="0.01"
+            min="0.01"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            required
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Rate per Unit (₹) *
+          </label>
+          <input
+            type="number"
+            name="rate"
+            value={formData.rate}
+            onChange={handleChange}
+            step="0.01"
+            min="0.01"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            required
+          />
+        </div>
+      </div>
+
+      <div className="bg-blue-50 dark:bg-blue-900/20 p-3 rounded-lg">
+        <p className="text-sm font-medium text-gray-700 dark:text-dark-text-secondary">
+          Total Amount: <span className="text-lg font-bold text-blue-600 dark:text-blue-400">
+            ₹{amount.toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+          </span>
+        </p>
+      </div>
+
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Source/Location
+          </label>
+          <input
+            type="text"
+            name="source"
+            value={formData.source}
+            onChange={handleChange}
+            placeholder="e.g., Warehouse A"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+            Vehicle Number
+          </label>
+          <input
+            type="text"
+            name="vehicle_no"
+            value={formData.vehicle_no}
+            onChange={handleChange}
+            placeholder="e.g., MH12AB1234"
+            className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          />
+        </div>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Payment Status
+        </label>
+        <select
+          name="payment_status"
+          value={formData.payment_status}
+          onChange={handleChange}
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+        >
+          <option value="pending">Pending</option>
+          <option value="paid">Paid</option>
+          <option value="partial">Partial</option>
+        </select>
+      </div>
+
+      <div>
+        <label className="block text-sm font-medium text-gray-700 dark:text-dark-text-secondary mb-1">
+          Notes
+        </label>
+        <textarea
+          name="notes"
+          value={formData.notes}
+          onChange={handleChange}
+          rows="2"
+          placeholder="Additional notes..."
+          className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+        />
+      </div>
+
+      <div className="flex justify-end space-x-3 pt-4 border-t border-gray-200 dark:border-gray-700">
+        <Button type="button" variant="secondary" onClick={onCancel}>
+          Cancel
         </Button>
-
-        {/* Amount Summary */}
-        <div className="bg-blue-50 dark:bg-blue-900/20 p-4 rounded-lg space-y-2">
-          <div className="flex justify-between text-lg font-bold border-t border-gray-300 dark:border-gray-600 pt-2">
-            <span className="text-gray-900 dark:text-dark-text">Total Amount:</span>
-            <span className="text-brand-red">₹{totals.total}</span>
-          </div>
-        </div>
-
-        {/* Action Buttons */}
-        <div className="flex justify-end gap-3 pt-4">
-          <Button type="button" onClick={onClose} variant="outline">
-            Cancel
-          </Button>
-          <Button type="submit" variant="primary">
-            Save Purchase Challan
-          </Button>
-        </div>
-      </form>
-    </div>
+        <Button type="submit">{challan ? 'Update Challan' : 'Save Challan'}</Button>
+      </div>
+    </form>
   );
 };
 
 const Challan = () => {
   const [challans, setChallans] = useState([]);
-  const [showForm, setShowForm] = useState(false);
-  const [loading, setLoading] = useState(false);
   const [suppliers, setSuppliers] = useState([]);
-  const [viewingChallan, setViewingChallan] = useState(null);
-  const [isViewModalOpen, setIsViewModalOpen] = useState(false);
-  const [challanItems, setChallanItems] = useState([]);
-  const [searchFilters, setSearchFilters] = useState({
-    challan_no: '',
-    supplier_id: '',
-    date_from: '',
-    date_to: '',
-  });
+  const [inventoryItems, setInventoryItems] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [editingChallan, setEditingChallan] = useState(null);
+  const [isDeleteModalOpen, setIsDeleteModalOpen] = useState(false);
+  const [challanToDelete, setChallanToDelete] = useState(null);
+  const [searchTerm, setSearchTerm] = useState('');
+  const [statusFilter, setStatusFilter] = useState('');
 
   useEffect(() => {
-    loadChallans();
-    loadSuppliers();
+    fetchSuppliers();
+    fetchInventoryItems();
+    fetchChallans();
   }, []);
 
-  const loadSuppliers = async () => {
+  const fetchSuppliers = async () => {
     try {
-      const data = await dbOperations.getAll('suppliers');
+      const { data, error } = await supabase
+        .from('suppliers')
+        .select('id, name, company')
+        .order('name');
+
+      if (error) throw error;
       setSuppliers(data || []);
     } catch (error) {
-      console.error('Error loading suppliers:', error);
+      console.error('Error fetching suppliers:', error);
+      toast.error('Failed to load suppliers');
     }
   };
 
-  const loadChallans = async () => {
+  const fetchInventoryItems = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('inventory_items')
+        .select('id, item_name, name, unit')
+        .order('item_name');
+
+      if (error) throw error;
+      setInventoryItems(data || []);
+    } catch (error) {
+      console.error('Error fetching inventory items:', error);
+      toast.error('Failed to load inventory items');
+    }
+  };
+
+  const fetchChallans = async () => {
     setLoading(true);
     try {
-      const data = await dbOperations.getAll('purchase_challans');
+      const { data, error } = await supabase
+        .from('purchase_challans')
+        .select(`
+          *,
+          supplier:suppliers(id, name, company),
+          item:inventory_items(id, item_name, name, unit)
+        `)
+        .order('challan_date', { ascending: false })
+        .order('created_at', { ascending: false });
+
+      if (error) throw error;
       setChallans(data || []);
     } catch (error) {
-      console.error('Error loading challans:', error);
-      toast.error('Failed to load challans');
+      console.error('Error fetching challans:', error);
+      toast.error('Failed to load purchase challans');
     } finally {
       setLoading(false);
     }
   };
 
-  const handleSave = async (challanData) => {
-    let errorOccurred = false;
-    let errorMsg = '';
+  const handleAddChallan = async (challanData) => {
     try {
-      // Save main challan record
-      const challanRecord = await dbOperations.insert('purchase_challans', {
-        challan_no: challanData.challan_no,
-        challan_date: challanData.challan_date,
-        supplier_id: challanData.supplier_id,
-        supplier_name: challanData.supplier_name,
-        total_amount: challanData.total_amount,
-        payment_mode: challanData.payment_mode,
-        payment_amount: challanData.payment_amount,
-        payment_status: challanData.payment_status,
-        balance_due: challanData.balance_due,
-        created_at: challanData.created_at,
-      });
-      const challanId = challanRecord.id || challanRecord;
+      const { error } = await supabase
+        .from('purchase_challans')
+        .insert([challanData]);
 
-      // Save challan items and create stock movements
-      for (const material of challanData.materials) {
-        const itemTotal = parseFloat(material.quantity) * parseFloat(material.rate);
-        try {
-          await dbOperations.insert('purchase_challan_items', {
-            challan_id: challanId,
-            material_name: material.material_name,
-            category_id: material.category_id,
-            quantity: parseFloat(material.quantity),
-            unit: material.unit,
-            rate: parseFloat(material.rate),
-            total: itemTotal,
-            created_at: new Date().toISOString(),
-          });
-        } catch (itemError) {
-          errorOccurred = true;
-          errorMsg += `Material save error: ${itemError?.message || itemError}\n`;
-        }
+      if (error) throw error;
 
-        // Update inventory stock - find or create inventory item
-        try {
-          const allInventory = await dbOperations.getAll('inventory_items');
-          const existingItem = allInventory.find(inv => 
-            inv.name?.toLowerCase() === material.material_name.toLowerCase() &&
-            inv.category_id === material.category_id
-          );
-          if (existingItem) {
-            await dbOperations.update('inventory_items', existingItem.id, {
-              current_stock: (parseFloat(existingItem.current_stock) || 0) + parseFloat(material.quantity),
-              updated_at: new Date().toISOString(),
-            });
-          } else {
-            await dbOperations.insert('inventory_items', {
-              name: material.material_name,
-              category_id: material.category_id,
-              current_stock: parseFloat(material.quantity),
-              unit: material.unit,
-              purchase_price: parseFloat(material.rate),
-              created_at: new Date().toISOString(),
-              updated_at: new Date().toISOString(),
-            });
-          }
-        } catch (invError) {
-          errorOccurred = true;
-          errorMsg += `Inventory update error: ${invError?.message || invError}\n`;
-        }
-
-        // Create stock movement (IN)
-        try {
-          await dbOperations.insert('stock_movements', {
-            material_name: material.material_name,
-            category_id: material.category_id,
-            movement_type: 'in',
-            quantity: parseFloat(material.quantity),
-            unit: material.unit,
-            reference_type: 'purchase_challan',
-            reference_id: challanId,
-            reference_no: challanData.challan_no,
-            movement_date: challanData.challan_date,
-            created_at: new Date().toISOString(),
-          });
-        } catch (moveError) {
-          errorOccurred = true;
-          errorMsg += `Stock movement error: ${moveError?.message || moveError}\n`;
-        }
-      }
-
-      // Create supplier ledger entry (CREDIT - liability)
-      try {
-        const category = challanData.materials && challanData.materials.length > 0 ? challanData.materials[0].category_id : '';
-        await dbOperations.insert('supplier_ledger_entries', {
-          supplier_id: challanData.supplier_id,
-          entry_date: challanData.challan_date,
-          particulars: `Purchase Challan - ${challanData.challan_no}`,
-          reference_no: challanData.challan_no,
-          reference_type: 'purchase_challan',
-          reference_id: challanId,
-          debit_amount: 0,
-          credit_amount: challanData.total_amount,
-          entry_type: 'purchase',
-          category,
-          created_at: new Date().toISOString(),
-        });
-
-        // If payment made, create payment ledger entry (DEBIT - reduces liability)
-        if (challanData.payment_amount > 0) {
-          await dbOperations.insert('supplier_ledger_entries', {
-            supplier_id: challanData.supplier_id,
-            entry_date: challanData.challan_date,
-            particulars: `Payment for Challan - ${challanData.challan_no} (${challanData.payment_mode})`,
-            reference_no: challanData.challan_no,
-            reference_type: 'payment',
-            reference_id: challanId,
-            debit_amount: challanData.payment_amount,
-            credit_amount: 0,
-            entry_type: 'payment',
-            category,
-            created_at: new Date().toISOString(),
-          });
-        }
-      } catch (ledgerError) {
-        errorOccurred = true;
-        errorMsg += `Ledger entry error: ${ledgerError?.message || ledgerError}\n`;
-        toast.warning('Challan saved but ledger update failed');
-      }
-
-      if (!errorOccurred) {
-        toast.success(`Purchase Challan saved successfully with ${challanData.materials.length} material(s)`);
-        setShowForm(false);
-        loadChallans();
-      } else {
-        toast.error('Some parts failed to save. Details: ' + errorMsg);
-      }
+      toast.success('Purchase challan created successfully!');
+      setIsModalOpen(false);
+      fetchChallans();
     } catch (error) {
-      console.error('Error saving challan:', error);
-      toast.error('Failed to save challan: ' + (error?.message || error));
+      console.error('Error adding challan:', error);
+      toast.error('Failed to create purchase challan');
     }
   };
 
-  const handleDelete = async (id) => {
-    if (!confirm('Are you sure you want to delete this challan?')) return;
-
+  const handleUpdateChallan = async (challanData) => {
     try {
-      await dbOperations.delete('purchase_challans', id);
-      toast.success('Challan deleted successfully');
-      loadChallans();
+      const { error } = await supabase
+        .from('purchase_challans')
+        .update(challanData)
+        .eq('id', editingChallan.id);
+
+      if (error) throw error;
+
+      toast.success('Purchase challan updated successfully!');
+      setIsModalOpen(false);
+      setEditingChallan(null);
+      fetchChallans();
+    } catch (error) {
+      console.error('Error updating challan:', error);
+      toast.error('Failed to update purchase challan');
+    }
+  };
+
+  const handleDeleteChallan = async () => {
+    try {
+      const { error } = await supabase
+        .from('purchase_challans')
+        .delete()
+        .eq('id', challanToDelete.id);
+
+      if (error) throw error;
+
+      toast.success('Purchase challan deleted successfully');
+      setIsDeleteModalOpen(false);
+      setChallanToDelete(null);
+      fetchChallans();
     } catch (error) {
       console.error('Error deleting challan:', error);
-      toast.error('Failed to delete challan');
+      toast.error('Failed to delete purchase challan');
     }
   };
 
-  const handleView = async (challan) => {
-    setViewingChallan(challan);
-    setIsViewModalOpen(true);
-    // Load challan items
-    try {
-      const allItems = await dbOperations.getAll('purchase_challan_items');
-      // Try both challan.id and challan.challan_no for matching
-      let items = allItems.filter(item => item.challan_id === challan.id || item.challan_id === challan.challan_no);
-      // Fallback: try matching by reference_no if needed
-      if (items.length === 0 && challan.challan_no) {
-        items = allItems.filter(item => item.reference_no === challan.challan_no);
-      }
-      setChallanItems(items || []);
-    } catch (error) {
-      console.error('Error loading challan items:', error);
-      setChallanItems([]);
-    }
+  const exportToCSV = () => {
+    const headers = [
+      'Challan No',
+      'Date',
+      'Supplier',
+      'Item',
+      'Quantity',
+      'Rate',
+      'Amount',
+      'Source',
+      'Vehicle No',
+      'Payment Status',
+    ];
+    const csvContent = [
+      headers.join(','),
+      ...filteredChallans.map((challan) =>
+        [
+          challan.challan_no,
+          challan.challan_date,
+          challan.supplier?.name || '',
+          challan.item?.item_name || challan.item?.name || '',
+          challan.quantity,
+          challan.rate,
+          challan.amount,
+          challan.source || '',
+          challan.vehicle_no || '',
+          challan.payment_status,
+        ].join(',')
+      ),
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `purchase_challans_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    toast.success('Purchase challans exported to CSV');
   };
 
   const handlePrint = () => {
-    const printContent = document.getElementById('challan-print-view');
-    if (!printContent) return;
-    
-    const WinPrint = window.open('', '', 'width=900,height=650');
-    WinPrint.document.write(`<html><head><title>Purchase Challan</title></head><body>${printContent.innerHTML}</body></html>`);
-    WinPrint.document.close();
-    WinPrint.focus();
-    WinPrint.print();
-    WinPrint.close();
-  };
-
-  const handleSavePDF = () => {
-    if (!viewingChallan) return;
-    
-    const input = document.getElementById('challan-print-view');
-    if (!input) {
-      toast.error('Challan view not found');
-      return;
-    }
-    
-    html2canvas(input, { scale: 2 }).then((canvas) => {
-      const imgData = canvas.toDataURL('image/png');
-      const pdf = new jsPDF('p', 'mm', 'a4');
-      const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, 'PNG', 0, 0, pdfWidth, pdfHeight);
-      
-      // Generate filename with supplier name and challan number
-      const supplierName = (viewingChallan.supplier_name || 'unknown').replace(/[^a-zA-Z0-9]/g, '-');
-      const challanNo = (viewingChallan.challan_no || 'no-number').replace(/[^a-zA-Z0-9]/g, '-');
-      const filename = `purchase-challan-${supplierName}-${challanNo}.pdf`;
-      
-      pdf.save(filename);
-      toast.success('PDF saved successfully');
-    });
-  };
-
-  const handleSearchChange = (e) => {
-    const { name, value } = e.target;
-    setSearchFilters({ ...searchFilters, [name]: value });
+    window.print();
+    toast.success('Print dialog opened');
   };
 
   const filteredChallans = challans.filter((challan) => {
-    if (searchFilters.challan_no && !challan.challan_no.toLowerCase().includes(searchFilters.challan_no.toLowerCase())) {
-      return false;
-    }
-    if (searchFilters.supplier_id && challan.supplier_id !== searchFilters.supplier_id) {
-      return false;
-    }
-    if (searchFilters.date_from && challan.challan_date < searchFilters.date_from) {
-      return false;
-    }
-    if (searchFilters.date_to && challan.challan_date > searchFilters.date_to) {
-      return false;
-    }
-    return true;
+    const matchesSearch =
+      challan.challan_no?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      challan.supplier?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      challan.item?.item_name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+      challan.item?.name?.toLowerCase().includes(searchTerm.toLowerCase());
+    const matchesStatus = !statusFilter || challan.payment_status === statusFilter;
+    return matchesSearch && matchesStatus;
   });
 
+  if (loading) {
+    return (
+      <Card>
+        <div className="flex items-center justify-center py-12">
+          <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-brand-red"></div>
+          <span className="ml-3 text-gray-600 dark:text-dark-text-secondary">Loading purchase challans...</span>
+        </div>
+      </Card>
+    );
+  }
+
   return (
-    <div className="p-6">
+    <div>
+      <Modal
+        isOpen={isModalOpen}
+        onClose={() => {
+          setIsModalOpen(false);
+          setEditingChallan(null);
+        }}
+        title={editingChallan ? 'Edit Purchase Challan' : 'Add Purchase Challan'}
+      >
+        <ChallanForm
+          challan={editingChallan}
+          suppliers={suppliers}
+          inventoryItems={inventoryItems}
+          onSave={editingChallan ? handleUpdateChallan : handleAddChallan}
+          onCancel={() => {
+            setIsModalOpen(false);
+            setEditingChallan(null);
+          }}
+        />
+      </Modal>
+
+      <ConfirmModal
+        isOpen={isDeleteModalOpen}
+        onClose={() => setIsDeleteModalOpen(false)}
+        onConfirm={handleDeleteChallan}
+        title="Delete Purchase Challan"
+        message={`Are you sure you want to delete challan "${challanToDelete?.challan_no}"? This action cannot be undone.`}
+      />
+
       <Card>
         <div className="flex justify-between items-center mb-6">
-          <h2 className="text-2xl font-bold text-gray-900 dark:text-dark-text">
-            Purchase Challan
-          </h2>
-          <Button
-            onClick={() => setShowForm(true)}
-            variant="primary"
-          >
-            <PlusCircle className="w-5 h-5 mr-2" />
+          <div>
+            <h3 className="text-lg font-bold text-gray-900 dark:text-dark-text">Purchase Challans</h3>
+            <p className="text-sm text-gray-600 dark:text-dark-text-secondary mt-1">
+              Track delivery challans received from suppliers
+            </p>
+          </div>
+          <Button onClick={() => setIsModalOpen(true)}>
+            <PlusCircle className="h-4 w-4 mr-2" />
             Add Challan
           </Button>
         </div>
 
-        {/* Purchase Challan Content */}
-            {/* Search Filters */}
-            <div className="grid grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 dark:bg-gray-800 rounded-lg">
-              <div>
-                <input
-                  type="text"
-                  name="challan_no"
-                  value={searchFilters.challan_no}
-                  onChange={handleSearchChange}
-                  placeholder="Search by challan no..."
-                  className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-                />
-              </div>
-              <div>
-                <select
-                  name="supplier_id"
-                  value={searchFilters.supplier_id}
-                  onChange={handleSearchChange}
-                  className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-                >
-                  <option value="">All Suppliers</option>
-                  {suppliers.map((supplier) => (
-                    <option key={supplier.id} value={supplier.id}>
-                      {supplier.name}
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div>
-                <input
-                  type="date"
-                  name="date_from"
-                  value={searchFilters.date_from}
-                  onChange={handleSearchChange}
-                  placeholder="Date From"
-                  className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-                />
-              </div>
-              <div>
-                <input
-                  type="date"
-                  name="date_to"
-                  value={searchFilters.date_to}
-                  onChange={handleSearchChange}
-                  placeholder="Date To"
-                  className="w-full p-2 text-sm border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
-                />
-              </div>
-            </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+          <div className="relative md:col-span-2">
+            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 h-5 w-5 text-gray-400" />
+            <input
+              type="text"
+              placeholder="Search by challan no, supplier, or item..."
+              value={searchTerm}
+              onChange={(e) => setSearchTerm(e.target.value)}
+              className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+            />
+          </div>
 
-            {/* Challans Table */}
-            {loading ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500 dark:text-gray-400">Loading...</p>
-              </div>
-            ) : filteredChallans.length === 0 ? (
-              <div className="text-center py-12">
-                <p className="text-gray-500 dark:text-gray-400">No purchase challans found</p>
-                <p className="text-sm text-gray-400 dark:text-gray-500 mt-2">
-                  Add your first purchase challan to get started
-                </p>
-              </div>
-            ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full">
-                  <thead>
-                    <tr className="bg-gray-50 dark:bg-gray-800 border-b border-gray-200 dark:border-gray-700">
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Challan No
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Date
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Supplier
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Materials
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Total Amount
-                      </th>
-                      <th className="px-4 py-3 text-left text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Payment Status
-                      </th>
-                      <th className="px-4 py-3 text-center text-xs font-medium text-gray-700 dark:text-gray-300 uppercase tracking-wider">
-                        Actions
-                      </th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-gray-200 dark:divide-gray-700">
-                    {filteredChallans.map((challan) => (
-                      <tr key={challan.id} className="hover:bg-gray-50 dark:hover:bg-gray-800">
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
-                          {challan.challan_no}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
-                          {new Date(challan.challan_date).toLocaleDateString('en-GB')}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-900 dark:text-dark-text">
-                          {challan.supplier_name}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-gray-500 dark:text-gray-400">
-                          Multiple items
-                        </td>
-                        <td className="px-4 py-3 text-sm font-medium text-gray-900 dark:text-dark-text">
-                          ₹{challan.total_amount?.toFixed(2)}
-                        </td>
-                        <td className="px-4 py-3 text-sm">
-                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                            challan.payment_status === 'paid' 
-                              ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
-                              : challan.payment_status === 'partial'
-                              ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
-                              : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
-                          }`}>
-                            {challan.payment_status === 'paid' ? 'Paid' : challan.payment_status === 'partial' ? 'Partial' : 'Pending'}
-                          </span>
-                          {challan.balance_due > 0 && (
-                            <div className="text-xs text-gray-500 dark:text-gray-400 mt-1">
-                              Due: ₹{challan.balance_due?.toFixed(2)}
-                            </div>
-                          )}
-                        </td>
-                        <td className="px-4 py-3 text-sm text-center">
-                          <div className="flex items-center justify-center gap-2">
-                            <button
-                              onClick={() => handleView(challan)}
-                              className="text-blue-600 hover:text-blue-800 dark:text-blue-400 dark:hover:text-blue-300"
-                              title="View Challan"
-                            >
-                              <Eye className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={() => handleDelete(challan.id)}
-                              className="text-red-600 hover:text-red-800 dark:text-red-400 dark:hover:text-red-300"
-                              title="Delete Challan"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            )}
-      </Card>
+          <select
+            value={statusFilter}
+            onChange={(e) => setStatusFilter(e.target.value)}
+            className="p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          >
+            <option value="">All Status</option>
+            <option value="pending">Pending</option>
+            <option value="partial">Partial</option>
+            <option value="paid">Paid</option>
+          </select>
+        </div>
 
-      {/* Add Form Modal */}
-      <Modal isOpen={showForm} onClose={() => setShowForm(false)} size="xl">
-        <PurchaseChallanForm
-          onClose={() => setShowForm(false)}
-          onSave={handleSave}
-        />
-      </Modal>
+        <div className="flex items-center justify-end space-x-2 mb-4">
+          <Button variant="secondary" onClick={exportToCSV}>
+            <Download className="h-4 w-4 mr-2" />
+            Export CSV
+          </Button>
+          <Button variant="secondary" onClick={handlePrint}>
+            <Printer className="h-4 w-4 mr-2" />
+            Print
+          </Button>
+        </div>
 
-      {/* View Challan Modal */}
-      <Modal
-        isOpen={isViewModalOpen}
-        onClose={() => {
-          setIsViewModalOpen(false);
-          setViewingChallan(null);
-          setChallanItems([]);
-        }}
-        title="Purchase Challan Details"
-        size="xl"
-      >
-        {viewingChallan && (
-          <div className="space-y-4">
-            {/* Header with Actions */}
-            <div className="flex justify-end gap-2 pb-4 border-b dark:border-gray-700">
-              <Button variant="outline" size="sm" onClick={() => toast.info('Edit functionality coming soon')}>
-                <Edit className="h-4 w-4 mr-1" />
-                Edit
-              </Button>
-              <Button variant="outline" size="sm" onClick={handlePrint}>
-                <Printer className="h-4 w-4 mr-1" />
-                Print
-              </Button>
-              <Button variant="outline" size="sm" onClick={handleSavePDF}>
-                <Download className="h-4 w-4 mr-1" />
-                Save PDF
-              </Button>
-            </div>
-
-            {/* Challan Print View */}
-            <div id="challan-print-view" className="bg-white text-black p-6">
-              {/* Header */}
-              <div className="text-center mb-6 border-b-2 border-black pb-4">
-                <h1 className="text-3xl font-bold">PURCHASE CHALLAN</h1>
-                <p className="text-lg mt-2">Malwa Trolley</p>
-              </div>
-
-              {/* Challan Details */}
-              <div className="grid grid-cols-2 gap-4 mb-6">
-                <div>
-                  <p className="text-sm text-gray-600">Challan No:</p>
-                  <p className="font-bold text-lg">{viewingChallan.challan_no || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Date:</p>
-                  <p className="font-bold text-lg">{viewingChallan.challan_date ? new Date(viewingChallan.challan_date).toLocaleDateString('en-GB') : 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Supplier:</p>
-                  <p className="font-bold text-lg">{viewingChallan.supplier_name || 'N/A'}</p>
-                </div>
-                <div>
-                  <p className="text-sm text-gray-600">Payment Mode:</p>
-                  <p className="font-bold text-lg capitalize">{viewingChallan.payment_mode || 'N/A'}</p>
-                </div>
-              </div>
-
-              {/* Items Table */}
-              <div className="mb-6">
-                <h3 className="font-bold text-lg mb-3 border-b border-black pb-2">MATERIALS</h3>
-                <table className="w-full border-collapse border border-black">
-                  <thead>
-                    <tr className="bg-gray-200">
-                      <th className="border border-black p-2 text-left">S.No</th>
-                      <th className="border border-black p-2 text-left">Material Name</th>
-                      <th className="border border-black p-2 text-center">Quantity</th>
-                      <th className="border border-black p-2 text-center">Unit</th>
-                      <th className="border border-black p-2 text-right">Rate (₹)</th>
-                      <th className="border border-black p-2 text-right">Total (₹)</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {challanItems.length > 0 ? (
-                      challanItems.map((item, idx) => (
-                        <tr key={idx}>
-                          <td className="border border-black p-2">{idx + 1}</td>
-                          <td className="border border-black p-2">{item.material_name || 'N/A'}</td>
-                          <td className="border border-black p-2 text-center">{item.quantity || 0}</td>
-                          <td className="border border-black p-2 text-center capitalize">{item.unit || 'pcs'}</td>
-                          <td className="border border-black p-2 text-right">₹{(item.rate || 0).toFixed(2)}</td>
-                          <td className="border border-black p-2 text-right">₹{(item.total || 0).toFixed(2)}</td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan="6" className="border border-black p-4 text-center">No materials found</td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-
-              {/* Payment Details */}
-              <div className="grid grid-cols-2 gap-6 mb-6">
-                <div className="space-y-2">
-                  <h3 className="font-bold text-lg border-b border-black pb-2">PAYMENT DETAILS</h3>
-                  <div className="flex justify-between">
-                    <span>Payment Mode:</span>
-                    <span className="font-semibold capitalize">{viewingChallan.payment_mode || 'Pending'}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Payment Status:</span>
-                    <span className={`font-semibold capitalize ${
-                      viewingChallan.payment_status === 'paid' ? 'text-green-600' :
-                      viewingChallan.payment_status === 'partial' ? 'text-yellow-600' : 'text-red-600'
-                    }`}>
-                      {viewingChallan.payment_status || 'Pending'}
-                    </span>
-                  </div>
-                </div>
-
-                <div className="space-y-2">
-                  <h3 className="font-bold text-lg border-b border-black pb-2">AMOUNT SUMMARY</h3>
-                  <div className="flex justify-between">
-                    <span>Total Amount:</span>
-                    <span className="font-semibold">₹{(viewingChallan.total_amount || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span>Payment Received:</span>
-                    <span className="font-semibold">₹{(viewingChallan.payment_amount || 0).toFixed(2)}</span>
-                  </div>
-                  <div className="flex justify-between border-t-2 border-black pt-2">
-                    <span className="font-bold">Balance Due:</span>
-                    <span className="font-bold text-red-600">₹{(viewingChallan.balance_due || 0).toFixed(2)}</span>
-                  </div>
-                </div>
-              </div>
-
-              {/* Footer */}
-              <div className="mt-12 pt-6 border-t-2 border-black">
-                <div className="flex justify-between">
-                  <div>
-                    <p className="text-sm text-gray-600">Received By</p>
-                    <div className="mt-8 border-t border-black pt-2 w-48">
-                      <p className="text-sm text-center">Signature</p>
+        <div className="overflow-x-auto">
+          <table className="w-full text-sm">
+            <thead className="bg-gray-50 dark:bg-gray-700 text-left">
+              <tr>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Challan No</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Date</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Supplier</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Item</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Quantity</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Rate</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Amount</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Status</th>
+                <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredChallans.length > 0 ? (
+                filteredChallans.map((challan) => (
+                  <tr
+                    key={challan.id}
+                    className="border-b dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+                  >
+                    <td className="p-3 font-medium text-gray-900 dark:text-dark-text">
+                      <div className="flex items-center">
+                        <TruckIcon className="h-4 w-4 mr-2 text-gray-400" />
+                        {challan.challan_no}
+                      </div>
+                    </td>
+                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
+                      {new Date(challan.challan_date).toLocaleDateString('en-GB')}
+                    </td>
+                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
+                      <div>
+                        <div className="font-medium">{challan.supplier?.name}</div>
+                        {challan.supplier?.company && (
+                          <div className="text-xs text-gray-500">{challan.supplier.company}</div>
+                        )}
+                      </div>
+                    </td>
+                    <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
+                      {challan.item?.item_name || challan.item?.name}
+                    </td>
+                    <td className="p-3 text-right text-gray-700 dark:text-dark-text-secondary">
+                      {parseFloat(challan.quantity).toFixed(2)} {challan.item?.unit}
+                    </td>
+                    <td className="p-3 text-right text-gray-700 dark:text-dark-text-secondary">
+                      ₹{parseFloat(challan.rate).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-3 text-right font-medium text-gray-900 dark:text-dark-text">
+                      ₹{parseFloat(challan.amount).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                    </td>
+                    <td className="p-3">
+                      <span
+                        className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          challan.payment_status === 'paid'
+                            ? 'bg-green-100 text-green-800 dark:bg-green-900 dark:text-green-200'
+                            : challan.payment_status === 'partial'
+                            ? 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900 dark:text-yellow-200'
+                            : 'bg-red-100 text-red-800 dark:bg-red-900 dark:text-red-200'
+                        }`}
+                      >
+                        {challan.payment_status}
+                      </span>
+                    </td>
+                    <td className="p-3 text-right">
+                      <div className="flex justify-end items-center space-x-2">
+                        <Button
+                          variant="ghost"
+                          className="p-2 h-auto"
+                          onClick={() => {
+                            setEditingChallan(challan);
+                            setIsModalOpen(true);
+                          }}
+                        >
+                          <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          className="p-2 h-auto"
+                          onClick={() => {
+                            setChallanToDelete(challan);
+                            setIsDeleteModalOpen(true);
+                          }}
+                        >
+                          <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
+                        </Button>
+                      </div>
+                    </td>
+                  </tr>
+                ))
+              ) : (
+                <tr>
+                  <td colSpan="9" className="text-center p-12">
+                    <div className="flex flex-col items-center text-gray-500 dark:text-dark-text-secondary">
+                      <TruckIcon className="h-12 w-12 mb-3 text-gray-400" />
+                      <p className="text-lg font-medium">No purchase challans found</p>
+                      <p className="text-sm mt-1">
+                        {searchTerm || statusFilter
+                          ? 'Try adjusting your filters'
+                          : 'Add your first purchase challan to get started'}
+                      </p>
                     </div>
-                  </div>
-                  <div>
-                    <p className="text-sm text-gray-600">Authorized By</p>
-                    <div className="mt-8 border-t border-black pt-2 w-48">
-                      <p className="text-sm text-center">Signature</p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        {filteredChallans.length > 0 && (
+          <div className="mt-4 text-sm text-gray-600 dark:text-dark-text-secondary">
+            Showing {filteredChallans.length} of {challans.length} challan(s)
           </div>
         )}
-      </Modal>
+      </Card>
     </div>
   );
 };

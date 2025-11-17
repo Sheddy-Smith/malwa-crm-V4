@@ -6,7 +6,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
     sm: 'max-w-sm',
     md: 'max-w-md',
     lg: 'max-w-lg',
-    xl: 'max-w-3xl',
+    xl: 'max-w-xl',
   }
   return (
     <AnimatePresence>
@@ -31,7 +31,7 @@ const Modal = ({ isOpen, onClose, title, children, size = 'md' }) => {
                 <X className="h-5 w-5 text-gray-600 dark:text-dark-text-secondary" />
               </button>
             </div>
-            <div className="p-6 text-gray-700 dark:text-dark-text-secondary max-h-[80vh] overflow-y-auto">
+            <div className="p-6 text-gray-700 dark:text-dark-text-secondary">
               {children}
             </div>
           </motion.div>

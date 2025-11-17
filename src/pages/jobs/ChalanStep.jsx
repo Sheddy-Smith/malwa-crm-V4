@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import Card from "@/components/ui/Card";
 import Button from "@/components/ui/Button";
-import { Save, Printer, Trash2, Plus } from "lucide-react";
+import { Save, Printer, Trash2 } from "lucide-react";
 import jsPDF from "jspdf";
 import html2canvas from "html2canvas";
 import JobSearchBar from "@/components/jobs/JobSearchBar";
@@ -135,18 +135,50 @@ const ChalanStep = () => {
     }
   };
 
-  // ✅ Save as PDF
-  const handleSavePDF = () => {
-    const input = document.getElementById("challan-body");
-    html2canvas(input, { scale: 2 }).then((canvas) => {
+  // ✅ Save as PDF using html2canvas - Simple and reliable
+  const handleSavePDF = async () => {
+    try {
+      const input = document.getElementById("challan-body");
+      const canvas = await html2canvas(input, { 
+        scale: 2,
+        useCORS: true,
+        logging: false
+      });
+      
       const imgData = canvas.toDataURL("image/png");
       const pdf = new jsPDF("p", "mm", "a4");
+      
       const pdfWidth = pdf.internal.pageSize.getWidth();
-      const pdfHeight = (canvas.height * pdfWidth) / canvas.width;
-      pdf.addImage(imgData, "PNG", 0, 0, pdfWidth, pdfHeight);
-      const filename = jobCtx.vehicleNo ? `${jobCtx.vehicleNo}_challan.pdf` : "challan.pdf";
+      const pdfHeight = pdf.internal.pageSize.getHeight();
+      const imgWidth = pdfWidth;
+      const imgHeight = (canvas.height * pdfWidth) / canvas.width;
+      
+      // If content fits in one page
+      if (imgHeight <= pdfHeight) {
+        pdf.addImage(imgData, "PNG", 0, 0, imgWidth, imgHeight);
+      } else {
+        // Multiple pages needed
+        let yOffset = 0;
+        let remainingHeight = imgHeight;
+        
+        while (remainingHeight > 0) {
+          pdf.addImage(imgData, "PNG", 0, -yOffset, imgWidth, imgHeight);
+          remainingHeight -= pdfHeight;
+          yOffset += pdfHeight;
+          
+          if (remainingHeight > 0) {
+            pdf.addPage();
+          }
+        }
+      }
+      
+      const filename = jobCtx.vehicleNo ? jobCtx.vehicleNo + '_challan.pdf' : "challan.pdf";
       pdf.save(filename);
-    });
+      toast.success('Challan PDF saved successfully');
+    } catch (error) {
+      console.error('PDF generation error:', error);
+      toast.error('Failed to generate PDF. Please try Print Challan instead.');
+    }
   };
 
   // ✅ Persist challan to IndexedDB and create stock movements (OUT)
@@ -299,17 +331,55 @@ const ChalanStep = () => {
     }
   };
 
-  // ✅ Print
+  // ✅ Print with proper styling
   const handlePrint = () => {
     const printContent = document.getElementById("challan-body");
     const WinPrint = window.open("", "", "width=900,height=650");
-    WinPrint.document.write(
-      `<html><head><title>Challan</title></head><body>${printContent.innerHTML}</body></html>`
-    );
+    WinPrint.document.write(`
+      <html>
+        <head>
+          <title>Challan</title>
+          <style>
+            @page {
+              size: A4;
+              margin: 15mm;
+            }
+            body {
+              font-family: Arial, sans-serif;
+              margin: 0;
+              padding: 0;
+            }
+            table {
+              width: 100%;
+              border-collapse: collapse;
+              page-break-inside: auto;
+            }
+            tr {
+              page-break-inside: avoid;
+              page-break-after: auto;
+            }
+            thead {
+              display: table-header-group;
+            }
+            tfoot {
+              display: table-footer-group;
+            }
+            .no-print {
+              display: none;
+            }
+          </style>
+        </head>
+        <body>
+          ${printContent.innerHTML}
+        </body>
+      </html>
+    `);
     WinPrint.document.close();
     WinPrint.focus();
-    WinPrint.print();
-    WinPrint.close();
+    setTimeout(() => {
+      WinPrint.print();
+      WinPrint.close();
+    }, 250);
   };
 
   return (
@@ -317,7 +387,7 @@ const ChalanStep = () => {
       <h3 className="text-xl font-bold">Challan</h3>
 
       <Card>
-        <div id="challan-body">
+        <div id="challan-body" style={{ paddingBottom: '50px' }}>
           {/* Challan Header with Details */}
           <div className="mb-4 border-b pb-4">
             <h2 className="text-2xl font-bold text-center mb-4">CHALLAN</h2>

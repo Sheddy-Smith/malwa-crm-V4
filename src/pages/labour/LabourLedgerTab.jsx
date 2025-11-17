@@ -10,6 +10,8 @@ import { dbOperations } from '@/lib/db';
 import jsPDF from 'jspdf';
 
 const ManualEntryForm = ({ labourId, entry, onSave, onCancel }) => {
+  const isEditMode = !!entry; // Check if editing existing entry
+  
   const [formData, setFormData] = useState(
     entry || {
       entry_date: new Date().toISOString().split('T')[0],
@@ -51,6 +53,7 @@ const ManualEntryForm = ({ labourId, entry, onSave, onCancel }) => {
           onChange={handleChange}
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
           required
+          disabled={isEditMode}
         />
       </div>
 
@@ -66,6 +69,7 @@ const ManualEntryForm = ({ labourId, entry, onSave, onCancel }) => {
           placeholder="e.g., Opening Balance, Payment Adjustment"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
           required
+          disabled={isEditMode}
         />
       </div>
 
@@ -80,6 +84,7 @@ const ManualEntryForm = ({ labourId, entry, onSave, onCancel }) => {
           onChange={handleChange}
           placeholder="e.g., Welder, Painter, Mechanic"
           className="w-full p-2 border border-gray-300 rounded-lg bg-white dark:bg-dark-card dark:border-gray-600 dark:text-dark-text focus:ring-2 focus:ring-brand-red"
+          disabled={isEditMode}
         />
       </div>
 
@@ -169,7 +174,16 @@ const LabourLedgerTab = () => {
   const fetchLedgerEntries = async () => {
     setLoading(true);
     try {
-      let data = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', selectedLabourId);
+      let data;
+      try {
+        data = await dbOperations.getByIndex('labour_ledger_entries', 'labour_id', selectedLabourId);
+      } catch (indexError) {
+        console.warn('Index not available, using fallback:', indexError);
+        // Fallback: get all entries and filter manually
+        const allEntries = await dbOperations.getAll('labour_ledger_entries');
+        data = allEntries.filter(entry => entry.labour_id === selectedLabourId);
+      }
+      
       data = Array.isArray(data) ? data : [];
 
       // Filter by date range if provided
@@ -190,7 +204,7 @@ const LabourLedgerTab = () => {
       setLedgerEntries(filteredData);
     } catch (error) {
       console.error('Error fetching ledger entries:', error);
-      toast.error('Failed to load ledger entries');
+      toast.error('Failed to load ledger entries: ' + error.message);
     } finally {
       setLoading(false);
     }
@@ -214,10 +228,6 @@ const LabourLedgerTab = () => {
 
   const handleEditEntry = async (entryData) => {
     try {
-      if (editingEntry.entry_type && editingEntry.entry_type !== 'manual') {
-        throw new Error('Only manual entries can be edited.');
-      }
-
       await dbOperations.update('labour_ledger_entries', editingEntry.id, entryData);
 
       toast.success('Entry updated successfully!');
@@ -226,16 +236,12 @@ const LabourLedgerTab = () => {
       fetchLedgerEntries();
     } catch (error) {
       console.error('Error updating entry:', error);
-      toast.error('Failed to update entry. Only manual entries can be edited.');
+      toast.error('Failed to update entry.');
     }
   };
 
   const handleDeleteEntry = async () => {
     try {
-      if (entryToDelete.entry_type && entryToDelete.entry_type !== 'manual') {
-        throw new Error('Only manual entries can be deleted.');
-      }
-
       await dbOperations.delete('labour_ledger_entries', entryToDelete.id);
 
       toast.success('Entry deleted successfully!');
@@ -244,24 +250,16 @@ const LabourLedgerTab = () => {
       fetchLedgerEntries();
     } catch (error) {
       console.error('Error deleting entry:', error);
-      toast.error('Failed to delete entry. Only manual entries can be deleted.');
+      toast.error('Failed to delete entry.');
     }
   };
 
   const openEditModal = (entry) => {
-    if (entry.entry_type !== 'manual') {
-      toast.error('Only manual entries can be edited');
-      return;
-    }
     setEditingEntry(entry);
     setIsModalOpen(true);
   };
 
   const openDeleteModal = (entry) => {
-    if (entry.entry_type !== 'manual') {
-      toast.error('Only manual entries can be deleted');
-      return;
-    }
     setEntryToDelete(entry);
     setIsDeleteModalOpen(true);
   };
@@ -540,12 +538,11 @@ const LabourLedgerTab = () => {
                   <thead className="bg-gray-50 dark:bg-gray-700 text-left">
                     <tr>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Date</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Particulars</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Skill</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Ref No</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Debit</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Vehicle No</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Owner Name</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300">Work</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Credit</th>
-                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Balance</th>
+                      <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Debit</th>
                       <th className="p-3 font-semibold text-gray-700 dark:text-gray-300 text-right">Actions</th>
                     </tr>
                   </thead>
@@ -559,19 +556,14 @@ const LabourLedgerTab = () => {
                           <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
                             {new Date(entry.entry_date).toLocaleDateString('en-GB')}
                           </td>
-                          <td className="p-3 text-gray-900 dark:text-dark-text">{entry.particulars}</td>
-                          <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {entry.skill_type || '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text font-medium">
+                            {entry.vehicle_no || '-'}
                           </td>
-                          <td className="p-3 text-gray-700 dark:text-dark-text-secondary">
-                            {entry.reference_no || '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text">
+                            {entry.owner_name || '-'}
                           </td>
-                          <td className="p-3 text-right text-red-600 dark:text-red-400 font-medium">
-                            {parseFloat(entry.debit_amount || 0) > 0
-                              ? `₹${parseFloat(entry.debit_amount).toLocaleString('en-IN', {
-                                  minimumFractionDigits: 2,
-                                })}`
-                              : '-'}
+                          <td className="p-3 text-gray-900 dark:text-dark-text">
+                            {entry.particulars ? entry.particulars.replace(/ - Vehicle:.*$/, '').trim() : '-'}
                           </td>
                           <td className="p-3 text-right text-green-600 dark:text-green-400 font-medium">
                             {parseFloat(entry.credit_amount || 0) > 0
@@ -580,34 +572,38 @@ const LabourLedgerTab = () => {
                                 })}`
                               : '-'}
                           </td>
-                          <td className="p-3 text-right font-semibold text-gray-900 dark:text-dark-text">
-                            ₹{Math.abs(entry.running_balance).toLocaleString('en-IN', { minimumFractionDigits: 2 })}
+                          <td className="p-3 text-right text-red-600 dark:text-red-400 font-medium">
+                            {parseFloat(entry.debit_amount || 0) > 0
+                              ? `₹${parseFloat(entry.debit_amount).toLocaleString('en-IN', {
+                                  minimumFractionDigits: 2,
+                                })}`
+                              : '-'}
                           </td>
                           <td className="p-3 text-right">
-                            {entry.entry_type === 'manual' && (
-                              <div className="flex justify-end items-center space-x-2">
-                                <Button
-                                  variant="ghost"
-                                  className="p-2 h-auto"
-                                  onClick={() => openEditModal(entry)}
-                                >
-                                  <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
-                                </Button>
-                                <Button
-                                  variant="ghost"
-                                  className="p-2 h-auto"
-                                  onClick={() => openDeleteModal(entry)}
-                                >
-                                  <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
-                                </Button>
-                              </div>
-                            )}
+                            <div className="flex justify-end items-center space-x-2">
+                              <Button
+                                variant="ghost"
+                                className="p-2 h-auto"
+                                onClick={() => openEditModal(entry)}
+                                title="View/Edit Entry"
+                              >
+                                <Edit className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+                              </Button>
+                              <Button
+                                variant="ghost"
+                                className="p-2 h-auto"
+                                onClick={() => openDeleteModal(entry)}
+                                title="Delete Entry"
+                              >
+                                <Trash2 className="h-4 w-4 text-red-500 dark:text-red-400" />
+                              </Button>
+                            </div>
                           </td>
                         </tr>
                       ))
                     ) : (
                       <tr>
-                        <td colSpan="8" className="text-center p-12">
+                        <td colSpan="7" className="text-center p-12">
                           <p className="text-gray-500 dark:text-dark-text-secondary">
                             No entries found for the selected filters
                           </p>
